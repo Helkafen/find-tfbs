@@ -6,6 +6,7 @@ use rust_htslib::bcf::*;
 use rust_htslib::bcf::record::*;
 use bio::io::bed;
 use std::collections::HashMap;
+use std::cmp;
 
 mod range;
 
@@ -33,12 +34,12 @@ pub struct Match {
     pub pattern_id: u16
 }
 
-#[derive(Eq, PartialEq, Clone, Ord, PartialOrd)]
+#[derive(Eq, PartialEq, Clone, Ord, PartialOrd, Debug)]
 pub enum Nucleotide {
     A, C, G, T, N
 }
 
-#[derive(Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Eq, PartialEq, Ord, PartialOrd, Debug, Clone)]
 pub struct NucleotidePos {
     pub nuc: Nucleotide,
     pub pos: u64
@@ -68,7 +69,7 @@ fn apply_weight(w: &Weight, n: &NucleotidePos) -> i32 {
         Nucleotide::G => w.w_g,
         Nucleotide::T => w.w_t,
         Nucleotide::N => w.w_n,
-    } 
+    }
 }
 
 pub fn apply_weights(pwm: &PWM, haplotype: &[NucleotidePos]) -> i32 {
@@ -150,19 +151,24 @@ fn toNucleotides(letters: &Vec<u8>) -> Vec<Nucleotide> {
     return letters.iter().map(|&l| toNucleotide(l)).collect();
 }
 
-fn patch_haplotype<F>(range: range::Range, diffs: &Vec<Diff>, get: F) -> Vec<NucleotidePos> where F: Fn(u64, u64) -> Vec<NucleotidePos> {
+fn patch_haplotype<F>(range: range::Range, diffs: &Vec<Diff>, get: F) -> Vec<NucleotidePos> where F: Fn(range::Range) -> Vec<NucleotidePos> {
     let mut sorted_diffs: Vec<&Diff> = diffs.iter().filter(|d| d.pos >= range.start && d.pos <= range.end).collect();
     sorted_diffs.sort();
 
-    fn next_chunk<F>(range: range::Range, ref_position: u64, ds: &Vec<&Diff>, get: F) -> Vec<NucleotidePos> where F: Fn(u64, u64) -> Vec<NucleotidePos> {
+    fn next_chunk<F>(range: range::Range, ref_position: u64, ds: &Vec<&Diff>, get: F) -> Vec<NucleotidePos> where F: Fn(range::Range) -> Vec<NucleotidePos> {
         match ds.split_first() {
             None => {
-                let chunk = get(ref_position, range.end);
-                return chunk;
+                if ref_position > range.end {
+                    return vec![];
+                }
+                else {
+                    let chunk = get(range::Range::new(ref_position, range.end));
+                    return chunk;
+                }
             }
             Some((d, rest)) => {
                 if d.pos > ref_position {
-                    let mut chunk = get(ref_position, d.pos-1);
+                    let mut chunk = get(range::Range::new(ref_position, d.pos-1));
                     chunk.extend(next_chunk(range, d.pos, ds, get).drain(..));
                     return chunk;
                 }
@@ -176,14 +182,14 @@ fn patch_haplotype<F>(range: range::Range, diffs: &Vec<Diff>, get: F) -> Vec<Nuc
                 }
                 else if d.pos == ref_position && d.alternative.len() == 1 { // Deletion
                     let mut chunk = vec![NucleotidePos { pos: ref_position, nuc: d.alternative[0].clone()}];
-                    chunk.extend(next_chunk(range, ref_position + (d.alternative.len() as u64), &rest.to_vec(), get).drain(..));
+                    chunk.extend(next_chunk(range, ref_position + (d.reference.len() as u64), &rest.to_vec(), get).drain(..));
                     return chunk;
                 }
                 else if d.pos == ref_position {
                     panic!("Missing case in haplotype patcher");
                 }
                 else if ref_position >= range.end {
-                    return get(ref_position, range.end);
+                    return get(range::Range::new(ref_position, ref_position));
                 }
                 else {
                     return vec![];
@@ -259,7 +265,7 @@ fn run_matches(i: u64) {
     ];
     let m = matches(&pwm, &haplotype, 1500);
     let expected = vec![Match {pos: 11, pattern_id: 5}];
-    if((i + m.len() as u64) % 10000000 == 0) {
+    if( i + m.len() as u64) % 10000000 == 0 {
         println!("{} {}",i, m.len());
     }
     assert_eq!(m, expected);
@@ -320,5 +326,99 @@ mod tests {
         let m = matches(&pwm, &haplotype, 1500);
         let expected = vec![Match {pos: 11, pattern_id: 5}];
         assert_eq!(m, expected);
+    }
+
+    fn refGenome(r: range::Range) -> Vec<NucleotidePos> {
+        let chromosome = vec![
+            NucleotidePos { nuc: Nucleotide::A, pos: 0 },
+            NucleotidePos { nuc: Nucleotide::C, pos: 1 },
+            NucleotidePos { nuc: Nucleotide::G, pos: 2 },
+            NucleotidePos { nuc: Nucleotide::T, pos: 3 }
+            ];
+        return chromosome[r.start as usize .. cmp::min((r.end+1) as usize,chromosome.len())].to_vec();
+    }
+
+    #[test]
+    fn test_patch_haplotype_with_no_diff() {
+        let diffs = Vec::new();
+        let patched = patch_haplotype(range::Range::new(1,2), &diffs, refGenome);
+        let expected = vec![NucleotidePos { nuc: Nucleotide::C, pos: 1 }, NucleotidePos { nuc: Nucleotide::G, pos: 2 }];
+        assert_eq!(patched, expected);
+
+        let patched2 = patch_haplotype(range::Range::new(0,2), &diffs, refGenome);
+        let expected2 = vec![NucleotidePos { nuc: Nucleotide::A, pos: 0 }, NucleotidePos { nuc: Nucleotide::C, pos: 1 }, NucleotidePos { nuc: Nucleotide::G, pos: 2 }];
+        assert_eq!(patched2, expected2);
+
+        let patched3 = patch_haplotype(range::Range::new(0,5), &diffs, refGenome);
+        let expected3 = vec![NucleotidePos { nuc: Nucleotide::A, pos: 0 }, NucleotidePos { nuc: Nucleotide::C, pos: 1 }, NucleotidePos { nuc: Nucleotide::G, pos: 2 }, NucleotidePos { nuc: Nucleotide::T, pos: 3 }];
+        assert_eq!(patched3, expected3);
+    }
+
+    #[test]
+    fn test_patch_haplotype_one_snp() {
+        let diffs = vec![Diff { pos: 100, reference: vec![Nucleotide::A], alternative: vec![Nucleotide::C] }];
+        let patched = patch_haplotype(range::Range::new(1,2), &diffs, refGenome);
+        let expected = vec![NucleotidePos { nuc: Nucleotide::C, pos: 1 }, NucleotidePos { nuc: Nucleotide::G, pos: 2 }];
+        assert_eq!(patched, expected);
+
+        let diffs2 = vec![Diff { pos: 1, reference: vec![Nucleotide::C], alternative: vec![Nucleotide::N] }];
+        let patched2 = patch_haplotype(range::Range::new(1,2), &diffs2, refGenome);
+        let expected2 = vec![NucleotidePos { nuc: Nucleotide::N, pos: 1 }, NucleotidePos { nuc: Nucleotide::G, pos: 2 }];
+        assert_eq!(patched2, expected2);
+
+        let diffs3 = vec![Diff { pos: 2, reference: vec![Nucleotide::G], alternative: vec![Nucleotide::A] }];
+        let patched3 = patch_haplotype(range::Range::new(1,2), &diffs3, refGenome);
+        let expected3 = vec![NucleotidePos { nuc: Nucleotide::C, pos: 1 }, NucleotidePos { nuc: Nucleotide::A, pos: 2 }];
+        assert_eq!(patched3, expected3);
+    }
+
+    #[test]
+    fn test_patch_haplotype_two_snp() {
+        let diffs = vec![Diff { pos: 1, reference: vec![Nucleotide::C], alternative: vec![Nucleotide::N] }, Diff { pos: 2, reference: vec![Nucleotide::G], alternative: vec![Nucleotide::A] }];
+        let patched = patch_haplotype(range::Range::new(1,2), &diffs, refGenome);
+        let expected = vec![NucleotidePos { nuc: Nucleotide::N, pos: 1 }, NucleotidePos { nuc: Nucleotide::A, pos: 2 }];
+        assert_eq!(patched, expected);
+
+        let diffs2 = vec![Diff { pos: 1, reference: vec![Nucleotide::C], alternative: vec![Nucleotide::N] }, Diff { pos: 4, reference: vec![Nucleotide::G], alternative: vec![Nucleotide::A] }];
+        let patched2 = patch_haplotype(range::Range::new(1,2), &diffs2, refGenome);
+        let expected2 = vec![NucleotidePos { nuc: Nucleotide::N, pos: 1 }, NucleotidePos { nuc: Nucleotide::G, pos: 2 }];
+        assert_eq!(patched2, expected2);
+    }
+
+    #[test]
+    fn test_patch_haplotype_one_insert() {
+        let diffs = vec![Diff { pos: 1, reference: vec![Nucleotide::C], alternative: vec![Nucleotide::N, Nucleotide::N] }];
+        let patched = patch_haplotype(range::Range::new(1,2), &diffs, refGenome);
+        let expected = vec![NucleotidePos { nuc: Nucleotide::N, pos: 1 }, NucleotidePos { nuc: Nucleotide::N, pos: 1 }, NucleotidePos { nuc: Nucleotide::G, pos: 2 }];
+        assert_eq!(patched, expected);
+
+        let diffs2 = vec![Diff { pos: 2, reference: vec![Nucleotide::C], alternative: vec![Nucleotide::N, Nucleotide::N] }];
+        let patched2 = patch_haplotype(range::Range::new(1,2), &diffs2, refGenome);
+        let expected2 = vec![NucleotidePos { nuc: Nucleotide::C, pos: 1 }, NucleotidePos { nuc: Nucleotide::N, pos: 2 }, NucleotidePos { nuc: Nucleotide::N, pos: 2 }];
+        assert_eq!(patched2, expected2);
+
+        let diffs3 = vec![Diff { pos: 3, reference: vec![Nucleotide::C], alternative: vec![Nucleotide::N, Nucleotide::N] }];
+        let patched3 = patch_haplotype(range::Range::new(1,2), &diffs3, refGenome);
+        let expected3 = vec![NucleotidePos { nuc: Nucleotide::C, pos: 1 }, NucleotidePos { nuc: Nucleotide::G, pos: 2 }];
+        assert_eq!(patched3, expected3);
+    }
+
+    #[test]
+    fn test_patch_haplotype_one_deletion() {
+        let diffs = vec![Diff { pos: 1, reference: vec![Nucleotide::C, Nucleotide::G], alternative: vec![Nucleotide::C] }];
+        let patched = patch_haplotype(range::Range::new(1,2), &diffs, refGenome);
+        let expected = vec![NucleotidePos { nuc: Nucleotide::C, pos: 1 }];
+        assert_eq!(patched, expected);
+
+        let diffs2 = vec![Diff { pos: 2, reference: vec![Nucleotide::G, Nucleotide::T], alternative: vec![Nucleotide::G] }];
+        let patched2 = patch_haplotype(range::Range::new(1,2), &diffs2, refGenome);
+        let expected2 = vec![NucleotidePos { nuc: Nucleotide::C, pos: 1 }, NucleotidePos { nuc: Nucleotide::G, pos: 2 }];
+        assert_eq!(patched2, expected2);
+
+        // For simplicity, do not apply a Diff that starts before the window we're observing
+        let diffs3 = vec![Diff { pos: 0, reference: vec![Nucleotide::A, Nucleotide::C], alternative: vec![Nucleotide::A] }];
+        let patched3 = patch_haplotype(range::Range::new(1,2), &diffs3, refGenome);
+        let expected3 = vec![NucleotidePos { nuc: Nucleotide::C, pos: 1 }, NucleotidePos { nuc: Nucleotide::G, pos: 2 }];
+        assert_eq!(patched3, expected3);
     }
 }
