@@ -2,40 +2,98 @@ extern crate bio;
 extern crate rust_htslib;
 
 //use bio::io::fasta;
-
-//use rust_htslib::bcf;
 use rust_htslib::bcf::*;
-use rust_htslib::bcf::Reader;
-//use rust_htslib::prelude::*;
-
-//use rust_htslib::bcf::header::Header;
-//use rust_htslib::bcf::header::HeaderRecord;
 use rust_htslib::bcf::record::*;
-
 use bio::io::bed;
-
-
+use std::collections::HashMap;
 
 mod range;
 
 
-use std::collections::HashMap;
+
+pub struct Weight {
+    pub w_a : i32,
+    pub w_c : i32,
+    pub w_g : i32,
+    pub w_t : i32,
+    pub w_n : i32
+}
+
+impl Weight {
+    pub fn new(a: i32, c: i32, g: i32, t: i32, n: i32) -> Weight {
+        return Weight { w_a : a, w_c : c, w_g : g, w_t : t, w_n : n };
+    }
+}
+
+pub struct PWM { pub weights: Vec<Weight>, pub name: String, pub pattern_id: u16 }
+
+#[derive(Eq, PartialEq, Debug)]
+pub struct Match {
+    pub pos: u64,
+    pub pattern_id: u16
+}
+
+#[derive(Eq, PartialEq, Clone, Ord, PartialOrd)]
+pub enum Nucleotide {
+    A, C, G, T, N
+}
+
+#[derive(Eq, PartialEq, Ord, PartialOrd)]
+pub struct NucleotidePos {
+    pub nuc: Nucleotide,
+    pub pos: u64
+}
 
 #[derive(Eq, PartialEq, Hash)]
 enum HaplotypeSide { Left, Right }
 
-
-#[derive(Eq, PartialEq, Clone)]
+#[derive(Eq, PartialEq, Clone, Ord, PartialOrd)]
 struct Diff {
-    pos: u32,
-    reference: Vec<u8>,
-    alternative: Vec<u8>,
+    pos: u64,
+    reference: Vec<Nucleotide>,
+    alternative: Vec<Nucleotide>,
 }
 
 #[derive(Eq, PartialEq, Hash)]
 struct HaplotypeId {
     sample_id: usize,
     side: HaplotypeSide
+}
+
+
+fn apply_weight(w: &Weight, n: &NucleotidePos) -> i32 {
+    match n.nuc {
+        Nucleotide::A => w.w_a,
+        Nucleotide::C => w.w_c,
+        Nucleotide::G => w.w_g,
+        Nucleotide::T => w.w_t,
+        Nucleotide::N => w.w_n,
+    } 
+}
+
+pub fn apply_weights(pwm: &PWM, haplotype: &[NucleotidePos]) -> i32 {
+    return pwm.weights.iter().zip(haplotype.iter()).map(|(w, n)| apply_weight(w,n)).sum();
+}
+
+pub fn matches(pwm: &PWM, haplotype: &Vec<NucleotidePos>, min_score: i32) -> Vec<Match> {
+    let mut res = Vec::new();
+    for i in 0..(haplotype.len()) {
+        let score = apply_weights(&pwm, &haplotype[i..]);
+        if score > min_score {
+            res.push(Match { pos : haplotype[i].pos, pattern_id : pwm.pattern_id });
+        }
+    }
+    return res;
+}
+
+pub fn matches_all_patterns(pwm_list: Vec<PWM>, haplotypes: Vec<Vec<NucleotidePos>>, min_score: i32) -> Vec<Match> {
+    let mut res = Vec::new();
+    for haplotype in &haplotypes {
+        for pattern in &pwm_list {
+            res.extend(matches(pattern, haplotype, min_score));
+        }
+    }
+    return res;
 }
 
 fn has_alternative(genotype: &Genotype, side: HaplotypeSide) -> bool{
@@ -79,6 +137,74 @@ fn load_peak_files(bed_files: &Vec<&str>, chromosome: &str) -> (Vec<range::Range
     (rs.ranges, peak_map)
 }
 
+fn toNucleotide(l: u8) -> Nucleotide {
+    if      l == 65 { return Nucleotide::A; }
+    else if l == 67 { return Nucleotide::C; }
+    else if l == 71 { return Nucleotide::G; }
+    else if l == 84 { return Nucleotide::T; }
+    else if l == 78 { return Nucleotide::N; }
+    else { panic!("Unknown nucleotide {}", l); }
+}
+
+fn toNucleotides(letters: &Vec<u8>) -> Vec<Nucleotide> {
+    return letters.iter().map(|&l| toNucleotide(l)).collect();
+}
+
+fn patch_haplotype<F>(range: range::Range, diffs: &Vec<Diff>, get: F) -> Vec<NucleotidePos> where F: Fn(u64, u64) -> Vec<NucleotidePos> {
+    let mut sorted_diffs: Vec<&Diff> = diffs.iter().filter(|d| d.pos >= range.start && d.pos <= range.end).collect();
+    sorted_diffs.sort();
+
+    fn next_chunk<F>(range: range::Range, ref_position: u64, ds: &Vec<&Diff>, get: F) -> Vec<NucleotidePos> where F: Fn(u64, u64) -> Vec<NucleotidePos> {
+        match ds.split_first() {
+            None => {
+                let chunk = get(ref_position, range.end);
+                return chunk;
+            }
+            Some((d, rest)) => {
+                if d.pos > ref_position {
+                    let mut chunk = get(ref_position, d.pos-1);
+                    chunk.extend(next_chunk(range, d.pos, ds, get).drain(..));
+                    return chunk;
+                }
+                else if d.pos == ref_position && d.reference.len() == 1 { // SNV or insertion
+                    let mut chunk = Vec::new();
+                    for i in &d.alternative {
+                        chunk.push(NucleotidePos { pos: ref_position, nuc: i.clone() });
+                    }
+                    chunk.extend(next_chunk(range, ref_position + 1, &rest.to_vec(), get).drain(..));
+                    return chunk;
+                }
+                else if d.pos == ref_position && d.alternative.len() == 1 { // Deletion
+                    let mut chunk = vec![NucleotidePos { pos: ref_position, nuc: d.alternative[0].clone()}];
+                    chunk.extend(next_chunk(range, ref_position + (d.alternative.len() as u64), &rest.to_vec(), get).drain(..));
+                    return chunk;
+                }
+                else if d.pos == ref_position {
+                    panic!("Missing case in haplotype patcher");
+                }
+                else if ref_position >= range.end {
+                    return get(ref_position, range.end);
+                }
+                else {
+                    return vec![];
+                }
+            }
+
+        }
+    }
+
+    return next_chunk(range, range.start, &sorted_diffs, get);
+}
+
+
+fn cat<T: Clone>(a: &[T], b: &[T]) -> Vec<T> {
+    let mut v = Vec::with_capacity(a.len() + b.len());
+    v.extend_from_slice(a);
+    v.extend_from_slice(b);
+    v
+}
+
+
 fn load_diffs(reader: &mut IndexedReader, sample_count: usize) -> (HashMap<HaplotypeId, Vec<Diff>>, u32) {
     let mut xs : HashMap<HaplotypeId, Vec<Diff>> = HashMap::new();
     let mut parsed_number: u32 = 0;
@@ -87,14 +213,14 @@ fn load_diffs(reader: &mut IndexedReader, sample_count: usize) -> (HashMap<Haplo
             Ok(mut record) => {
                 let position = record.pos();
                 let alleles = record.alleles();
-                let reference = alleles[0].to_vec();
-                let alternative = alleles[1].to_vec();
+                let reference = toNucleotides(&alleles[0].to_vec());
+                let alternative = toNucleotides(&alleles[1].to_vec());
                 let number_of_alleles = alleles.len();
                 let genotypes = record.genotypes().unwrap();
                 parsed_number = parsed_number + 1;
 
                 if number_of_alleles == 2 {
-                    let diff = Diff { pos : position, reference : reference.clone(), alternative : alternative.clone() };
+                    let diff = Diff { pos : position as u64, reference : reference.clone(), alternative : alternative.clone() };
                     for sample_id in 0..sample_count {
                         let genotype = genotypes.get(sample_id);
                         assert!(number_of_alleles == genotype.len(), "Inconsistent number of alleles");
@@ -121,27 +247,51 @@ fn load_diffs(reader: &mut IndexedReader, sample_count: usize) -> (HashMap<Haplo
     (xs, parsed_number)
 }
 
-fn main() {
-    let chromosome = "chr1";
-    let bed_files: Vec<&str> = "Bcell-13,CD4-9,CD8-10,CLP-14,CMP-4,Erythro-15,GMP-5,HSC-1,LMPP-3,MCP,mDC,MEGA1,MEGA2,MEP-6,Mono-7,MPP-2,Nkcell-11,pDC".split(',').collect();
-    let bcf = format!("/home/seb/masters/topmed/source/TOPMed_dbGaP_20180710/dbGaP-12336/65066/topmed-dcc/exchange/phs000964_TOPMed_WGS_JHS/Combined_Study_Data/Genotypes/freeze.6a/phased/freeze.6a.{}.pass_only.phased.bcf", chromosome);
-
-    let (merged_peaks, peak_map) = load_peak_files(&bed_files, chromosome);
-
-    match IndexedReader::from_path(bcf) {
-        Ok(mut reader) => {
-            let rid = reader.header().name2rid(chromosome.as_bytes()).unwrap();
-            let samples = reader.header().samples();
-            let sample_count = samples.len();
-            println!("Number of samples: {}", sample_count);
-            for peak in merged_peaks {
-                reader.fetch(rid, peak.start as u32, peak.end as u32).unwrap();
-                let (xs, parsed_number) = load_diffs(&mut reader, sample_count);
-                println!("Peak {} {} {}, {} variants", chromosome, peak.start, peak.end, parsed_number);
-            }
-        }
-        Err(e) => println!("{}", e),
+fn run_matches(i: u64) {
+    let c = Weight::new(0, 1000, 0, 0, 0);
+    let g = Weight::new(0, 0, 1000, 0, 0);
+    let pwm = PWM {weights: vec![c,g], name: "pwm".to_string(), pattern_id: 5};
+    let haplotype = vec![
+        NucleotidePos { nuc: Nucleotide::A, pos: 10 },
+        NucleotidePos { nuc: Nucleotide::C, pos: 11 },
+        NucleotidePos { nuc: Nucleotide::G, pos: 12 },
+        NucleotidePos { nuc: Nucleotide::T, pos: i }
+    ];
+    let m = matches(&pwm, &haplotype, 1500);
+    let expected = vec![Match {pos: 11, pattern_id: 5}];
+    if((i + m.len() as u64) % 10000000 == 0) {
+        println!("{} {}",i, m.len());
     }
+    assert_eq!(m, expected);
+}
+
+
+fn main() {
+    for i in 1..100000000 {
+        run_matches(i)
+    }
+
+
+    //let chromosome = "chr1";
+    //let bed_files: Vec<&str> = "Bcell-13,CD4-9,CD8-10,CLP-14,CMP-4,Erythro-15,GMP-5,HSC-1,LMPP-3,MCP,mDC,MEGA1,MEGA2,MEP-6,Mono-7,MPP-2,Nkcell-11,pDC".split(',').collect();
+    //let bcf = format!("/home/seb/masters/topmed/source/TOPMed_dbGaP_20180710/dbGaP-12336/65066/topmed-dcc/exchange/phs000964_TOPMed_WGS_JHS/Combined_Study_Data/Genotypes/freeze.6a/phased/freeze.6a.{}.pass_only.phased.bcf", chromosome);
+
+    //let (merged_peaks, peak_map) = load_peak_files(&bed_files, chromosome);
+
+    //match IndexedReader::from_path(bcf) {
+    //    Ok(mut reader) => {
+    //        let rid = reader.header().name2rid(chromosome.as_bytes()).unwrap();
+    //        let samples = reader.header().samples();
+    //        let sample_count = samples.len();
+    //        println!("Number of samples: {}", sample_count);
+    //        for peak in merged_peaks {
+    //            reader.fetch(rid, peak.start as u32, peak.end as u32).unwrap();
+    //            let (xs, parsed_number) = load_diffs(&mut reader, sample_count);
+    //            println!("Peak {} {} {}, {} variants", chromosome, peak.start, peak.end, parsed_number);
+    //        }
+    //    }
+    //    Err(e) => println!("{}", e),
+    //}
 
 }
 
@@ -149,8 +299,26 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn it_works() {
         assert_eq!(2 + 2, 4);
+    }
+
+    #[test]
+    fn test_matches() {
+        let c = Weight::new(0, 1000, 0, 0, 0);
+        let g = Weight::new(0, 0, 1000, 0, 0);
+        let pwm = PWM {weights: vec![c,g], name: "pwm".to_string(), pattern_id: 5};
+        let haplotype = vec![
+            NucleotidePos { nuc: Nucleotide::A, pos: 10 },
+            NucleotidePos { nuc: Nucleotide::C, pos: 11 },
+            NucleotidePos { nuc: Nucleotide::G, pos: 12 },
+            NucleotidePos { nuc: Nucleotide::T, pos: 13 }
+        ];
+        let m = matches(&pwm, &haplotype, 1500);
+        let expected = vec![Match {pos: 11, pattern_id: 5}];
+        assert_eq!(m, expected);
     }
 }
