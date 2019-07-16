@@ -1,7 +1,7 @@
 use std::{cmp, fmt};
 use std::iter::FromIterator;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
 pub struct Range {
     pub start: u64,
     pub end: u64,
@@ -18,6 +18,10 @@ impl Range {
     pub fn overlaps(&self, other: &Range) -> bool {
         (other.start >= self.start && other.start <= self.end)
         || (other.end >= self.start && other.end <= self.end)
+    }
+
+    pub fn contains(&self, point: u64) -> bool {
+        (point >= self.start && point <= self.end)
     }
 
     pub fn merge(&mut self, other: &Range) {
