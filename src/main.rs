@@ -7,6 +7,7 @@ use rust_htslib::bcf::record::*;
 use bio::io::bed;
 use std::collections::HashMap;
 use std::cmp;
+use std::rc::Rc;
 
 mod range;
 
@@ -26,37 +27,38 @@ impl Weight {
     }
 }
 
-pub struct PWM { pub weights: Vec<Weight>, pub name: String, pub pattern_id: u16 }
+pub struct PWM { pub weights: Vec<Weight>, pub name: String, pub pattern_id: u16, min_score: i32 }
 
 #[derive(Eq, PartialEq, Debug)]
 pub struct Match {
     pub pos: u64,
-    pub pattern_id: u16
+    pub pattern_id: u16,
+    haplotype_ids: Rc<Vec<HaplotypeId>>
 }
 
-#[derive(Eq, PartialEq, Clone, Ord, PartialOrd, Debug)]
+#[derive(Eq, PartialEq, Clone, Ord, PartialOrd, Debug, Hash)]
 pub enum Nucleotide {
     A, C, G, T, N
 }
 
-#[derive(Eq, PartialEq, Ord, PartialOrd, Debug, Clone)]
+#[derive(Eq, PartialEq, Ord, PartialOrd, Debug, Clone, Hash)]
 pub struct NucleotidePos {
     pub nuc: Nucleotide,
     pub pos: u64
 }
 
-#[derive(Eq, PartialEq, Hash)]
+#[derive(Eq, PartialEq, Hash, Debug, Clone)]
 enum HaplotypeSide { Left, Right }
 
-#[derive(Eq, PartialEq, Clone, Ord, PartialOrd)]
+#[derive(Eq, PartialEq, Clone, Ord, PartialOrd, Hash)]
 struct Diff {
     pos: u64,
     reference: Vec<Nucleotide>,
     alternative: Vec<Nucleotide>,
 }
 
-#[derive(Eq, PartialEq, Hash)]
-struct HaplotypeId {
+#[derive(Eq, PartialEq, Hash, Debug, Clone)]
+pub struct HaplotypeId {
     sample_id: usize,
     side: HaplotypeSide
 }
@@ -76,22 +78,12 @@ pub fn apply_weights(pwm: &PWM, haplotype: &[NucleotidePos]) -> i32 {
     return pwm.weights.iter().zip(haplotype.iter()).map(|(w, n)| apply_weight(w,n)).sum();
 }
 
-pub fn matches(pwm: &PWM, haplotype: &Vec<NucleotidePos>, min_score: i32) -> Vec<Match> {
+pub fn matches(pwm: &PWM, haplotype: &Vec<NucleotidePos>, haplotype_ids: Rc<Vec<HaplotypeId>>) -> Vec<Match> {
     let mut res = Vec::new();
     for i in 0..(haplotype.len()) {
         let score = apply_weights(&pwm, &haplotype[i..]);
-        if score > min_score {
-            res.push(Match { pos : haplotype[i].pos, pattern_id : pwm.pattern_id });
-        }
-    }
-    return res;
-}
-
-pub fn matches_all_patterns(pwm_list: Vec<PWM>, haplotypes: Vec<Vec<NucleotidePos>>, min_score: i32) -> Vec<Match> {
-    let mut res = Vec::new();
-    for haplotype in &haplotypes {
-        for pattern in &pwm_list {
-            res.extend(matches(pattern, haplotype, min_score));
+        if score > pwm.min_score {
+            res.push(Match { pos : haplotype[i].pos, pattern_id : pwm.pattern_id, haplotype_ids: haplotype_ids.clone() });
         }
     }
     return res;
@@ -138,7 +130,7 @@ fn load_peak_files(bed_files: &Vec<&str>, chromosome: &str) -> (Vec<range::Range
     (rs.ranges, peak_map)
 }
 
-fn toNucleotide(l: u8) -> Nucleotide {
+fn to_nucleotide(l: u8) -> Nucleotide {
     if      l == 65 { return Nucleotide::A; }
     else if l == 67 { return Nucleotide::C; }
     else if l == 71 { return Nucleotide::G; }
@@ -147,8 +139,8 @@ fn toNucleotide(l: u8) -> Nucleotide {
     else { panic!("Unknown nucleotide {}", l); }
 }
 
-fn toNucleotides(letters: &Vec<u8>) -> Vec<Nucleotide> {
-    return letters.iter().map(|&l| toNucleotide(l)).collect();
+fn to_nucleotides(letters: &Vec<u8>) -> Vec<Nucleotide> {
+    return letters.iter().map(|&l| to_nucleotide(l)).collect();
 }
 
 fn patch_haplotype<F>(range: range::Range, diffs: &Vec<Diff>, get: F) -> Vec<NucleotidePos> where F: Fn(range::Range) -> Vec<NucleotidePos> {
@@ -203,14 +195,6 @@ fn patch_haplotype<F>(range: range::Range, diffs: &Vec<Diff>, get: F) -> Vec<Nuc
 }
 
 
-fn cat<T: Clone>(a: &[T], b: &[T]) -> Vec<T> {
-    let mut v = Vec::with_capacity(a.len() + b.len());
-    v.extend_from_slice(a);
-    v.extend_from_slice(b);
-    v
-}
-
-
 fn load_diffs(reader: &mut IndexedReader, sample_count: usize) -> (HashMap<HaplotypeId, Vec<Diff>>, u32) {
     let mut xs : HashMap<HaplotypeId, Vec<Diff>> = HashMap::new();
     let mut parsed_number: u32 = 0;
@@ -219,8 +203,8 @@ fn load_diffs(reader: &mut IndexedReader, sample_count: usize) -> (HashMap<Haplo
             Ok(mut record) => {
                 let position = record.pos();
                 let alleles = record.alleles();
-                let reference = toNucleotides(&alleles[0].to_vec());
-                let alternative = toNucleotides(&alleles[1].to_vec());
+                let reference = to_nucleotides(&alleles[0].to_vec());
+                let alternative = to_nucleotides(&alleles[1].to_vec());
                 let number_of_alleles = alleles.len();
                 let genotypes = record.genotypes().unwrap();
                 parsed_number = parsed_number + 1;
@@ -253,18 +237,32 @@ fn load_diffs(reader: &mut IndexedReader, sample_count: usize) -> (HashMap<Haplo
     (xs, parsed_number)
 }
 
+
+fn group_by_diffs(mut diffs: HashMap<HaplotypeId, Vec<Diff>>) -> HashMap<Vec<Diff>, Rc<Vec<HaplotypeId>>> {
+    let mut res: HashMap<Vec<Diff>, Vec<HaplotypeId>> = HashMap::new();
+    for (h,d) in diffs.drain() {
+        res.entry(d).or_insert(Vec::new()).push(h);
+    }
+    let mut rc: HashMap<Vec<Diff>, Rc<Vec<HaplotypeId>>> = HashMap::new();
+    for (k,v) in res.drain() {
+        rc.insert(k, Rc::new(v));
+    }
+    return rc;
+}
+
 fn run_matches(i: u64) {
     let c = Weight::new(0, 1000, 0, 0, 0);
     let g = Weight::new(0, 0, 1000, 0, 0);
-    let pwm = PWM {weights: vec![c,g], name: "pwm".to_string(), pattern_id: 5};
+    let pwm = PWM {weights: vec![c,g], name: "pwm".to_string(), pattern_id: 5, min_score: 1500};
     let haplotype = vec![
         NucleotidePos { nuc: Nucleotide::A, pos: 10 },
         NucleotidePos { nuc: Nucleotide::C, pos: 11 },
         NucleotidePos { nuc: Nucleotide::G, pos: 12 },
         NucleotidePos { nuc: Nucleotide::T, pos: i }
     ];
-    let m = matches(&pwm, &haplotype, 1500);
-    let expected = vec![Match {pos: 11, pattern_id: 5}];
+    let haplotype_ids = Rc::new(Vec::new());
+    let m = matches(&pwm, &haplotype, haplotype_ids.clone());
+    let expected = vec![Match {pos: 11, pattern_id: 5, haplotype_ids: haplotype_ids.clone()}];
     if( i + m.len() as u64) % 10000000 == 0 {
         println!("{} {}",i, m.len());
     }
@@ -278,30 +276,47 @@ fn main() {
     }
 
 
-    //let chromosome = "chr1";
-    //let bed_files: Vec<&str> = "Bcell-13,CD4-9,CD8-10,CLP-14,CMP-4,Erythro-15,GMP-5,HSC-1,LMPP-3,MCP,mDC,MEGA1,MEGA2,MEP-6,Mono-7,MPP-2,Nkcell-11,pDC".split(',').collect();
-    //let bcf = format!("/home/seb/masters/topmed/source/TOPMed_dbGaP_20180710/dbGaP-12336/65066/topmed-dcc/exchange/phs000964_TOPMed_WGS_JHS/Combined_Study_Data/Genotypes/freeze.6a/phased/freeze.6a.{}.pass_only.phased.bcf", chromosome);
+    let chromosome = "chr1";
+    let bed_files: Vec<&str> = "Bcell-13,CD4-9,CD8-10,CLP-14,CMP-4,Erythro-15,GMP-5,HSC-1,LMPP-3,MCP,mDC,MEGA1,MEGA2,MEP-6,Mono-7,MPP-2,Nkcell-11,pDC".split(',').collect();
+    let bcf = format!("/home/seb/masters/topmed/source/TOPMed_dbGaP_20180710/dbGaP-12336/65066/topmed-dcc/exchange/phs000964_TOPMed_WGS_JHS/Combined_Study_Data/Genotypes/freeze.6a/phased/freeze.6a.{}.pass_only.phased.bcf", chromosome);
+    let pwm_list: Vec<PWM> = Vec::new();
 
-    //let (merged_peaks, peak_map) = load_peak_files(&bed_files, chromosome);
+    let (merged_peaks, peak_map) = load_peak_files(&bed_files, chromosome);
 
-    //match IndexedReader::from_path(bcf) {
-    //    Ok(mut reader) => {
-    //        let rid = reader.header().name2rid(chromosome.as_bytes()).unwrap();
-    //        let samples = reader.header().samples();
-    //        let sample_count = samples.len();
-    //        println!("Number of samples: {}", sample_count);
-    //        for peak in merged_peaks {
-    //            reader.fetch(rid, peak.start as u32, peak.end as u32).unwrap();
-    //            let (xs, parsed_number) = load_diffs(&mut reader, sample_count);
-    //            println!("Peak {} {} {}, {} variants", chromosome, peak.start, peak.end, parsed_number);
-    //        }
-    //    }
-    //    Err(e) => println!("{}", e),
-    //}
+    match IndexedReader::from_path(bcf) {
+        Ok(mut reader) => {
+            let rid = reader.header().name2rid(chromosome.as_bytes()).unwrap();
+            let samples = reader.header().samples();
+            let sample_count = samples.len();
+            println!("Number of samples: {}", sample_count);
+            for peak in merged_peaks {
+                reader.fetch(rid, peak.start as u32, peak.end as u32).unwrap();
+                let (xs, parsed_number) = load_diffs(&mut reader, sample_count);
+                let mut match_list = Vec::new();
+                for (diffs, haplotype_ids) in group_by_diffs(xs).drain() {
+                    let patched_haplotype = patch_haplotype(peak, &diffs, refGenome);
+                    for pwm in &pwm_list {
+                        match_list.extend(matches(pwm, &patched_haplotype, haplotype_ids.clone()));
+                    }
+                };
+                let number_of_matches: u64 = match_list.iter().map(|m| m.haplotype_ids.len() as u64).sum();
+                println!("Peak {} {} {}, {} variants, {} matches", chromosome, peak.start, peak.end, parsed_number, number_of_matches);
+            }
+        }
+        Err(e) => println!("{}", e),
+    }
 
 }
 
-
+fn refGenome(r: range::Range) -> Vec<NucleotidePos> {
+    let chromosome = vec![
+        NucleotidePos { nuc: Nucleotide::A, pos: 0 },
+        NucleotidePos { nuc: Nucleotide::C, pos: 1 },
+        NucleotidePos { nuc: Nucleotide::G, pos: 2 },
+        NucleotidePos { nuc: Nucleotide::T, pos: 3 }
+        ];
+    return chromosome[r.start as usize .. cmp::min((r.end+1) as usize,chromosome.len())].to_vec();
+}
 
 #[cfg(test)]
 mod tests {
@@ -316,26 +331,17 @@ mod tests {
     fn test_matches() {
         let c = Weight::new(0, 1000, 0, 0, 0);
         let g = Weight::new(0, 0, 1000, 0, 0);
-        let pwm = PWM {weights: vec![c,g], name: "pwm".to_string(), pattern_id: 5};
+        let pwm = PWM {weights: vec![c,g], name: "pwm".to_string(), pattern_id: 5, min_score: 1500};
         let haplotype = vec![
             NucleotidePos { nuc: Nucleotide::A, pos: 10 },
             NucleotidePos { nuc: Nucleotide::C, pos: 11 },
             NucleotidePos { nuc: Nucleotide::G, pos: 12 },
             NucleotidePos { nuc: Nucleotide::T, pos: 13 }
         ];
-        let m = matches(&pwm, &haplotype, 1500);
-        let expected = vec![Match {pos: 11, pattern_id: 5}];
+        let haplotype_ids = Rc::new(Vec::new());
+        let m = matches(&pwm, &haplotype, haplotype_ids.clone());
+        let expected = vec![Match {pos: 11, pattern_id: 5, haplotype_ids: haplotype_ids.clone()}];
         assert_eq!(m, expected);
-    }
-
-    fn refGenome(r: range::Range) -> Vec<NucleotidePos> {
-        let chromosome = vec![
-            NucleotidePos { nuc: Nucleotide::A, pos: 0 },
-            NucleotidePos { nuc: Nucleotide::C, pos: 1 },
-            NucleotidePos { nuc: Nucleotide::G, pos: 2 },
-            NucleotidePos { nuc: Nucleotide::T, pos: 3 }
-            ];
-        return chromosome[r.start as usize .. cmp::min((r.end+1) as usize,chromosome.len())].to_vec();
     }
 
     #[test]
