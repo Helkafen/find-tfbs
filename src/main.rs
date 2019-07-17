@@ -2,13 +2,16 @@ extern crate bio;
 extern crate rust_htslib;
 //extern crate itertools;
 
-//use bio::io::fasta;
+use bio::io::fasta;
 use rust_htslib::bcf::*;
 use rust_htslib::bcf::record::*;
 use bio::io::bed;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::cmp;
 use std::rc::Rc;
+use std::path::Path;
+use std::time::SystemTime;
 //use itertools::Itertools;
 
 mod range;
@@ -52,7 +55,7 @@ pub struct NucleotidePos {
 #[derive(Eq, PartialEq, Hash, Debug, Clone)]
 enum HaplotypeSide { Left, Right }
 
-#[derive(Eq, PartialEq, Clone, Ord, PartialOrd, Hash)]
+#[derive(Eq, PartialEq, Clone, Ord, PartialOrd, Hash, Debug)]
 struct Diff {
     pos: u64,
     reference: Vec<Nucleotide>,
@@ -138,11 +141,27 @@ fn to_nucleotide(l: u8) -> Nucleotide {
     else if l == 71 { return Nucleotide::G; }
     else if l == 84 { return Nucleotide::T; }
     else if l == 78 { return Nucleotide::N; }
+    else if l == 97 { return Nucleotide::A; }
+    else if l == 99 { return Nucleotide::C; }
+    else if l == 103 { return Nucleotide::G; }
+    else if l == 116 { return Nucleotide::T; }
+    else if l == 110 { return Nucleotide::N; }
     else { panic!("Unknown nucleotide {}", l); }
 }
 
 fn to_nucleotides(letters: &Vec<u8>) -> Vec<Nucleotide> {
     return letters.iter().map(|&l| to_nucleotide(l)).collect();
+}
+
+fn to_nucleotides_pos(letters: &Vec<u8>, r: &range::Range) -> Vec<NucleotidePos> {
+    let nucleotides = to_nucleotides(letters);
+    let mut res = Vec::with_capacity(nucleotides.len());
+    let mut pos = r.start;
+    for n in nucleotides {
+        res.push(NucleotidePos {nuc: n, pos: pos });
+        pos = pos + 1;
+    }
+    res
 }
 
 fn patch_haplotype<F>(range: range::Range, diffs: &Vec<Diff>, get: F) -> Vec<NucleotidePos> where F: Fn(range::Range) -> Vec<NucleotidePos> {
@@ -300,51 +319,87 @@ fn select_inner_peaks(peak: range::Range, peak_map: &HashMap<String, Vec<range::
 
 
 fn main() {
-    for i in 1..100000000 {
-        run_matches(i)
-    }
-
-
     let chromosome = "chr1";
     let bed_files: Vec<&str> = "Bcell-13,CD4-9,CD8-10,CLP-14,CMP-4,Erythro-15,GMP-5,HSC-1,LMPP-3,MCP,mDC,MEGA1,MEGA2,MEP-6,Mono-7,MPP-2,Nkcell-11,pDC".split(',').collect();
     let bcf = format!("/home/seb/masters/topmed/source/TOPMed_dbGaP_20180710/dbGaP-12336/65066/topmed-dcc/exchange/phs000964_TOPMed_WGS_JHS/Combined_Study_Data/Genotypes/freeze.6a/phased/freeze.6a.{}.pass_only.phased.bcf", chromosome);
+    let reference_genome_file = "/home/seb/masters/hg38.fa";
+
     let pwm_list: Vec<PWM> = Vec::new();
 
     let (merged_peaks, peak_map) = load_peak_files(&bed_files, chromosome);
 
-    match IndexedReader::from_path(bcf) {
-        Ok(mut reader) => {
-            let rid = reader.header().name2rid(chromosome.as_bytes()).unwrap();
-            let samples = get_sample_names(&mut reader);
-            let sample_count = samples.len();
-            let null_count: Vec<u32> = repeat(sample_count, 0);
-            println!("Number of samples: {}", sample_count);
-            for peak in merged_peaks {
-                let inner_peaks: HashMap<&String, Vec<&range::Range>> = select_inner_peaks(peak, &peak_map);
-                reader.fetch(rid, peak.start as u32, peak.end as u32).unwrap();
-                let (xs, parsed_number) = load_diffs(&mut reader, sample_count);
-                let mut match_list = Vec::new();
-                for (diffs, haplotype_ids) in group_by_diffs(xs).drain() {
-                    let patched_haplotype = patch_haplotype(peak, &diffs, ref_genome);
-                    for pwm in &pwm_list {
-                        match_list.extend(matches(pwm, &patched_haplotype, haplotype_ids.clone()));
-                    }
-                };
-                
-                let mut counts = count_matches_by_sample(&match_list, &inner_peaks, &null_count);
-                let fake_genotypes = {
-                    let mut x = HashMap::new();
-                    for (k,v) in counts.drain() {
-                        x.insert(k, counts_as_genotypes(v));
-                    }
-                    x
-                };
-                //HashMap<(&String, &range::Range, u16),String> = counts.iter().map(|(k,&v)| (k,counts_as_genotypes(v))).collect();
-                let number_of_matches: u64 = match_list.iter().map(|m| m.haplotype_ids.len() as u64).sum();
-                println!("Peak {} {} {}, {} variants, {} matches", chromosome, peak.start, peak.end, parsed_number, number_of_matches);
+    let mut reader = IndexedReader::from_path(bcf).expect("Error while opening the bcf file");
+    let mut reference_genome = bio::io::fasta::IndexedReader::from_file(&Path::new(reference_genome_file)).expect("Error while opening the reference genome");
+
+    let rid = reader.header().name2rid(chromosome.as_bytes()).unwrap();
+    let samples = get_sample_names(&mut reader);
+    let sample_count = samples.len();
+    let null_count: Vec<u32> = repeat(sample_count, 0);
+    println!("Number of samples: {}", sample_count);
+    let mut peak_id = 0;
+    let number_of_peaks = &merged_peaks.len();
+    let all_haplotypes_with_reference_genome: HashSet<HaplotypeId> = {
+            let mut x = HashSet::new();
+            for i in (0..sample_count).into_iter() {
+                x.insert(HaplotypeId {sample_id: i, side: HaplotypeSide::Left});
+                x.insert(HaplotypeId {sample_id: i, side: HaplotypeSide::Right});
+            }
+            x
+        };
+    let start_time = SystemTime::now();
+
+    for peak in merged_peaks {
+        let peak_start_time = SystemTime::now();
+        peak_id = peak_id + 1;
+        reference_genome.fetch(chromosome, peak.start, peak.end).expect("Error while seeking in reference genome file");
+        let ref_genome_peak: Vec<NucleotidePos> = {
+            let mut text = Vec::new();
+            reference_genome.read(&mut text).expect("Error while reading in reference genome file");
+            to_nucleotides_pos(&text, &peak)
+        };
+        let ref_genome = |r: range::Range| -> Vec<NucleotidePos> {
+            ref_genome_peak.iter().cloned().filter(|n| n.pos >= r.start && n.pos <= r.end).collect()
+        };
+
+        let inner_peaks: HashMap<&String, Vec<&range::Range>> = select_inner_peaks(peak, &peak_map);
+        reader.fetch(rid, peak.start as u32, peak.end as u32).unwrap();
+        let (xs, parsed_number) = load_diffs(&mut reader, sample_count);
+        let mut match_list = Vec::new();
+        let mut number_of_haplotypes = 0;
+        let mut haplotypes_with_reference_genome: HashSet<HaplotypeId> = all_haplotypes_with_reference_genome.iter().cloned().collect();
+
+        for (diffs, haplotype_ids) in group_by_diffs(xs).drain() {
+            for h in haplotype_ids.iter()  {
+                haplotypes_with_reference_genome.remove(&h);
+            }
+            let patched_haplotype = patch_haplotype(peak, &diffs, ref_genome);
+            for pwm in &pwm_list {
+                match_list.extend(matches(pwm, &patched_haplotype, haplotype_ids.clone()));
+            }
+            number_of_haplotypes = number_of_haplotypes + 1;
+        };
+        if !haplotypes_with_reference_genome.is_empty() {
+            number_of_haplotypes = number_of_haplotypes + 1;
+            let haplotype = ref_genome(peak.clone());
+            let x: Vec<HaplotypeId> = haplotypes_with_reference_genome.into_iter().collect();
+            let hap_ids = Rc::new(x);
+            for pwm in &pwm_list {
+                match_list.extend(matches(pwm, &haplotype, hap_ids.clone()));
             }
         }
-        Err(e) => println!("{}", e),
+
+        let mut counts = count_matches_by_sample(&match_list, &inner_peaks, &null_count);
+        let fake_genotypes = {
+            let mut x = HashMap::new();
+            for (k,v) in counts.drain() {
+                x.insert(k, counts_as_genotypes(v));
+            }
+            x
+        };
+        let number_of_matches: u64 = match_list.iter().map(|m| m.haplotype_ids.len() as u64).sum();
+        let peak_time_elapsed = peak_start_time.elapsed().unwrap().as_millis();
+        let global_time_elapsed = start_time.elapsed().unwrap().as_millis();
+        println!("Peak {}/{}\t{} ms ({} total)\t{}\t{}\t{} haplotypes\t{} variants\t{} matches", peak_id, number_of_peaks, peak_time_elapsed, global_time_elapsed, peak.start, peak.end, number_of_haplotypes, parsed_number, number_of_matches);
     }
 
 }
