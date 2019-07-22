@@ -10,7 +10,7 @@ edition = "2018"
 bio = "0.28.2"
 rust-htslib = "0.24.0"
 rayon = "1.1.0"
-#nom = "*"
+bgzip = "0.0.3"
 
 [dev-dependencies]
 criterion = "0.2"

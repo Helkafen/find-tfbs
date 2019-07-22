@@ -1,7 +1,12 @@
 extern crate bio;
+extern crate bgzip;
 
 use std::rc::Rc;
 use rust_htslib::bcf::*;
+
+use bgzip::write::BGzWriter;
+use std::fs;
+use std::io::prelude::*;
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -81,6 +86,7 @@ fn main() {
     let pwm_file = "/home/seb/masters/regu/dnamotifs/HOCOMOCOv11_full_pwms_HUMAN_mono.txt";
     let pwm_threshold_file = "/home/seb/masters/regu/dnamotifs/hocomoco_thresholds.tab";
     let wanted_pwms: Vec<String> = "JUNB_HUMAN.H11MO.0.A,FOSL1_HUMAN.H11MO.0.A,FOSL2_HUMAN.H11MO.0.A,JDP2_HUMAN.H11MO.0.D,GATA1_HUMAN.H11MO.0.A,GATA2_HUMAN.H11MO.0.A,GATA3_HUMAN.H11MO.0.A,GATA4_HUMAN.H11MO.0.A,GATA5_HUMAN.H11MO.0.D,GATA6_HUMAN.H11MO.0.A,JUN_HUMAN.H11MO.0.A,JUND_HUMAN.H11MO.0.A,BATF_HUMAN.H11MO.0.A,ATF3_HUMAN.H11MO.0.A,BACH1_HUMAN.H11MO.0.A,BACH2_HUMAN.H11MO.0.A,NFE2_HUMAN.H11MO.0.A,CEBPA_HUMAN.H11MO.0.A,CEBPB_HUMAN.H11MO.0.A,CEBPD_HUMAN.H11MO.0.C,CEBPE_HUMAN.H11MO.0.A,CEBPG_HUMAN.H11MO.0.B,SPIB_HUMAN.H11MO.0.A,IRF8_HUMAN.H11MO.0.B,SPI1_HUMAN.H11MO.0.A,MESP1_HUMAN.H11MO.0.D,ID4_HUMAN.H11MO.0.D,HTF4_HUMAN.H11MO.0.A,ITF2_HUMAN.H11MO.0.C,STAT1_HUMAN.H11MO.0.A,STAT2_HUMAN.H11MO.0.A,SPIC_HUMAN.H11MO.0.D,CTCF_HUMAN.H11MO.0.A,IRF1_HUMAN.H11MO.0.A,DBP_HUMAN.H11MO.0.B,MAFK_HUMAN.H11MO.1.A,ATF4_HUMAN.H11MO.0.A,ASCL1_HUMAN.H11MO.0.A,ASCL2_HUMAN.H11MO.0.D,TFE2_HUMAN.H11MO.0.A,MYOD1_HUMAN.H11MO.0.A,EVI1_HUMAN.H11MO.0.B,IRF3_HUMAN.H11MO.0.B,ZEB1_HUMAN.H11MO.0.A,IRF9_HUMAN.H11MO.0.C,HEN1_HUMAN.H11MO.0.C,LYL1_HUMAN.H11MO.0.A".split(',').into_iter().map(|a| a.to_string()).collect();
+    let output_file = "test2.gz";
 
     let pwm_list: Vec<PWM> = parse_pwm_files(pwm_file, pwm_threshold_file).iter().filter(|p| wanted_pwms.contains(&p.name)).cloned().collect();
     for pwm in &pwm_list {
@@ -91,6 +97,7 @@ fn main() {
 
     let mut reader = IndexedReader::from_path(bcf).expect("Error while opening the bcf file");
     let mut reference_genome = bio::io::fasta::IndexedReader::from_file(&Path::new(reference_genome_file)).expect("Error while opening the reference genome");
+    let mut writer = BGzWriter::new(fs::File::create(output_file).expect("Could not create output file"));
 
     let rid = reader.header().name2rid(chromosome.as_bytes()).unwrap();
     let samples = get_sample_names(&mut reader);
@@ -107,6 +114,17 @@ fn main() {
             }
             x
         };
+
+    // Write header in output file
+    writer.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT".as_bytes()).expect("Could not create output file");
+    for sample in samples {
+        writer.write("\t".as_bytes()).expect("Could not create output file");
+        writer.write(sample.as_bytes()).expect("Could not create output file");
+    }writer.write("\n".as_bytes()).expect("Could not create output file");
+
+    // A fake and unique position in the chromosome given for each line in the resulting vcf
+    let mut fake_position: u32 = 1;
+
     let start_time = SystemTime::now();
 
     for peak in merged_peaks {
@@ -155,42 +173,55 @@ fn main() {
 
         let mut counts = count_matches_by_sample(&match_list, &inner_peaks, &null_count);
 
-        let fake_genotypes = {
-            let mut x = HashMap::new();
-            for (k,v) in counts.drain() {
-                x.insert(k, counts_as_genotypes(v));
-            }
-            x
-        };
+
+        for ((source, inner_peak, pattern_id),v) in counts.drain() {
+            let (distinct_counts, genotypes) = counts_as_genotypes(v);
+
+            let id_str = format!("{},{},{}-{}",source, pattern_id, inner_peak.start, inner_peak.end);
+            let distinct_counts_str: Vec<String> = distinct_counts.iter().map(|c| c.to_string()).collect();
+            let info_str = format!("COUNTS={}", distinct_counts_str.join(",")); // <> T.intercalate "," (map showt (Set.toList s))
+            writer.write(format!("{}\t{}\t{}\t.\t.\t.\t.\t{}", chromosome, fake_position, id_str, info_str).as_bytes()).expect("Could not write result");
+
+            writer.write(genotypes.as_bytes()).expect("Could not write result");
+            writer.write("\n".as_bytes()).expect("Could not write result");
+            fake_position = fake_position + 1;
+        }
+
+
 
         let number_of_matches: u64 = match_list.iter().map(|m| m.haplotype_ids.len() as u64).sum();
         let peak_time_elapsed = peak_start_time.elapsed().unwrap().as_millis();
         let global_time_elapsed = start_time.elapsed().unwrap().as_millis();
         println!("Peak {}/{}\t{} ms ({} total)\t{}\t{}\t{} haplotypes\t{} variants\t{} matches", peak_id, number_of_peaks, peak_time_elapsed, global_time_elapsed, peak.start, peak.end, number_of_haplotypes, variant_count, number_of_matches);
     }
-
 }
 
-fn counts_as_genotypes(v: Vec<u32>) -> String {
+fn counts_as_genotypes(v: Vec<u32>) -> (Vec<u32>, String) {
     let mut res = String::with_capacity(v.len()*4);
     let min = v.iter().min();
     let max = v.iter().max();
     match (min, max) {
         (Some(&lowest), Some(&highest)) => {
-            let intermediate = (lowest + highest) / 2;
+            let intermediate_1_1000 = (lowest * 1000 * 3 + highest * 1000    ) / 4;
+            let intermediate_3_1000 = (lowest * 1000     + highest * 1000 * 3) / 4;
+            let mut all_values = vec![lowest, highest];
             for x in v {
                 if x == lowest {res.push_str("\t0|0");}
                 else if x == highest {res.push_str("\t1|1");}
-                else if x == intermediate {res.push_str("\t0|1");}
-                else if x - lowest < intermediate - x {res.push_str("\t0|0");}
-                else if highest - x < x - intermediate {res.push_str("\t1|1");}
-                else {res.push_str("\t0|1");}
+                else {
+                    if !all_values.contains(&x) { all_values.push(x);}
+                    let x_1000 = x *1000;
+                    if x_1000 < intermediate_1_1000 { res.push_str("\t0|0"); }
+                    else if x_1000 < intermediate_3_1000 { res.push_str("\t0|1"); }
+                    else { res.push_str("\t1|1"); }
+                }
             }
+            all_values.sort();
+            (all_values, res)
         },
-        (None, _) => (),
-        (_, None) => (),
+        (None, _) => (Vec::new(), String::new()),
+        (_, None) => (Vec::new(), String::new()),
     }
-    res
 }
 
 fn count_matches_by_sample<'a>(match_list: &Vec<Match>, inner_peaks: &'a HashMap<&String, Vec<&Range>>, null_count: &Vec<u32>) -> HashMap<(&'a String, &'a Range, u16), Vec<u32>> {
