@@ -1131,6 +1131,7 @@ version = "0.1.0"
 dependencies = [
  "bgzip 0.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "bio 0.28.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "criterion 0.2.11 (registry+https://github.com/rust-lang/crates.io-index)",
  "rayon 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rust-htslib 0.24.0 (registry+https://github.com/rust-lang/crates.io-index)",
