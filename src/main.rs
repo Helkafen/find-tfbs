@@ -152,8 +152,10 @@ fn main() {
 
 
     let pwm_list: Vec<PWM> = parse_pwm_files(pwm_file, pwm_threshold_file).iter().filter(|p| wanted_pwms.contains(&p.name)).cloned().collect();
+    let mut pwm_name_dict = HashMap::new();
     for pwm in &pwm_list {
         println!("PWM {} {}", pwm.name, pwm.min_score);
+        pwm_name_dict.insert(pwm.pattern_id, pwm.name.clone());
     }
 
     let (merged_peaks, peak_map) = load_peak_files(&bed_files, chromosome);
@@ -195,7 +197,7 @@ fn main() {
 
         for ((source, inner_peak, pattern_id),v) in count_matches_by_sample(&match_list, &inner_peaks, &null_count).drain() {
             let (distinct_counts, genotypes) = counts_as_genotypes(v);
-            let id_str = format!("{},{},{}-{}",source, pattern_id, inner_peak.start, inner_peak.end);
+            let id_str = format!("{},{},{}-{}",source, pwm_name_dict.get(&pattern_id).expect("Logic error: No pattern name for a pattern_id"), inner_peak.start, inner_peak.end);
             let distinct_counts_str: Vec<String> = distinct_counts.iter().map(|c| c.to_string()).collect();
             let info_str = format!("COUNTS={}", distinct_counts_str.join(","));
             writer.write(format!("{}\t{}\t{}\t.\t.\t.\t.\t{}", chromosome, fake_position, id_str, info_str).as_bytes()).expect("Could not write result");
