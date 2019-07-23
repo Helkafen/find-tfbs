@@ -77,37 +77,41 @@ fn group_by_diffs(mut diffs: HashMap<HaplotypeId, Vec<Diff>>) -> HashMap<Vec<Dif
     return rc;
 }
 
-pub fn load_haplotypes<F>(chromosome: &str, peak: &Range, reader: &mut IndexedReader, ref_genome: F) -> (u32, HashMap<Vec<NucleotidePos>, Rc<Vec<HaplotypeId>>>) where F: Fn(Range) -> Vec<NucleotidePos> {
+pub fn load_haplotypes(chromosome: &str, peak: &Range, reader: &mut IndexedReader, ref_haplotype: &Vec<NucleotidePos>) -> (u32, HashMap<Vec<NucleotidePos>, Rc<Vec<HaplotypeId>>>) {
     let rid = reader.header().name2rid(chromosome.as_bytes()).unwrap();
     reader.fetch(rid, peak.start as u32, peak.end as u32).unwrap();
     let (xs, variant_count) = load_diffs(reader);
     let mut res = HashMap::new();
     for (diffs, haplotype_ids) in group_by_diffs(xs).drain(){
-        let haplotype = patch_haplotype(peak, &diffs, &ref_genome);
+        let haplotype = patch_haplotype(peak, &diffs, ref_haplotype);
         res.insert(haplotype, haplotype_ids);
     }
     (variant_count, res)
 }
 
-pub fn patch_haplotype<F>(range: &Range, diffs: &Vec<Diff>, get: &F) -> Vec<NucleotidePos> where F: Fn(Range) -> Vec<NucleotidePos> {
+fn get(r: Range, ref_genome_peak: &Vec<NucleotidePos>) -> Vec<NucleotidePos> {
+    ref_genome_peak.iter().cloned().filter(|n| n.pos >= r.start && n.pos <= r.end).collect()
+}
+
+pub fn patch_haplotype(range: &Range, diffs: &Vec<Diff>, ref_haplotype: &Vec<NucleotidePos>) -> Vec<NucleotidePos> {
     let mut sorted_diffs: Vec<&Diff> = diffs.iter().filter(|d| d.pos >= range.start && d.pos <= range.end).collect();
     sorted_diffs.sort();
 
-    fn next_chunk<F>(range: &Range, ref_position: u64, ds: &Vec<&Diff>, get: &F) -> Vec<NucleotidePos> where F: Fn(Range) -> Vec<NucleotidePos> {
+    fn next_chunk(range: &Range, ref_position: u64, ds: &Vec<&Diff>, ref_haplotype: &Vec<NucleotidePos>) -> Vec<NucleotidePos> {
         match ds.split_first() {
             None => {
                 if ref_position > range.end {
                     return vec![];
                 }
                 else {
-                    let chunk = get(Range::new(ref_position, range.end));
+                    let chunk = get(Range::new(ref_position, range.end), ref_haplotype);
                     return chunk;
                 }
             }
             Some((d, rest)) => {
                 if d.pos > ref_position {
-                    let mut chunk = get(Range::new(ref_position, d.pos-1));
-                    chunk.extend(next_chunk(range, d.pos, ds, get).drain(..));
+                    let mut chunk = get(Range::new(ref_position, d.pos-1), ref_haplotype);
+                    chunk.extend(next_chunk(range, d.pos, ds, ref_haplotype).drain(..));
                     return chunk;
                 }
                 else if d.pos == ref_position && d.reference.len() == 1 { // SNV or insertion
@@ -115,19 +119,19 @@ pub fn patch_haplotype<F>(range: &Range, diffs: &Vec<Diff>, get: &F) -> Vec<Nucl
                     for i in &d.alternative {
                         chunk.push(NucleotidePos { pos: ref_position, nuc: i.clone() });
                     }
-                    chunk.extend(next_chunk(range, ref_position + 1, &rest.to_vec(), get).drain(..));
+                    chunk.extend(next_chunk(range, ref_position + 1, &rest.to_vec(), ref_haplotype).drain(..));
                     return chunk;
                 }
                 else if d.pos == ref_position && d.alternative.len() == 1 { // Deletion
                     let mut chunk = vec![NucleotidePos { pos: ref_position, nuc: d.alternative[0].clone()}];
-                    chunk.extend(next_chunk(range, ref_position + (d.reference.len() as u64), &rest.to_vec(), get).drain(..));
+                    chunk.extend(next_chunk(range, ref_position + (d.reference.len() as u64), &rest.to_vec(), ref_haplotype).drain(..));
                     return chunk;
                 }
                 else if d.pos == ref_position {
                     panic!("Missing case in haplotype patcher");
                 }
                 else if ref_position >= range.end {
-                    return get(Range::new(ref_position, ref_position));
+                    return get(Range::new(ref_position, ref_position), ref_haplotype);
                 }
                 else {
                     return vec![];
@@ -137,5 +141,5 @@ pub fn patch_haplotype<F>(range: &Range, diffs: &Vec<Diff>, get: &F) -> Vec<Nucl
         }
     }
 
-    return next_chunk(range, range.start, &sorted_diffs, get);
+    return next_chunk(range, range.start, &sorted_diffs, ref_haplotype);
 }
