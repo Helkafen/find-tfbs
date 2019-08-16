@@ -151,7 +151,7 @@ fn main() {
     let output_file              = opt_matches.value_of("output").unwrap();                         //"test2.gz";
 
 
-    let pwm_list: Vec<PWM> = parse_pwm_files(pwm_file, pwm_threshold_file).iter().filter(|p| wanted_pwms.contains(&p.name)).cloned().collect();
+    let pwm_list: Vec<PWM> = parse_pwm_files(pwm_file, pwm_threshold_file, true).iter().filter(|p| wanted_pwms.contains(&p.name)).cloned().collect();
     let mut pwm_name_dict = HashMap::new();
     for pwm in &pwm_list {
         println!("PWM {} {}", pwm.name, pwm.min_score);

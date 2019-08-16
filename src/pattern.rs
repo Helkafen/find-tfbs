@@ -7,7 +7,7 @@ use std::rc::Rc;
 
 use super::types::*;
 
-pub fn parse_pwm_files(pwm_file: &str, threshold_file: &str) -> Vec<PWM> {
+pub fn parse_pwm_files(pwm_file: &str, threshold_file: &str, add_reverse_patterns: bool) -> Vec<PWM> {
     fn parse_weight(s: &String) -> i32 {
         let x: f32 = s.parse().unwrap();
         (x * 1000.0).round() as i32
@@ -39,10 +39,24 @@ pub fn parse_pwm_files(pwm_file: &str, threshold_file: &str) -> Vec<PWM> {
                         Some(name) => {
                             match thresholds.get(&name) {
                                 Some(&t) => {
-                                    let pwm = PWM { weights: current_weights.into_iter().collect(), name: name, pattern_id: pattern_id, min_score: t };
+                                    let pwm = PWM { weights: current_weights.clone(), name: name.clone(), pattern_id: pattern_id, min_score: t };
                                     pwms.push(pwm);
-                                    current_weights = Vec::new();
                                     pattern_id = pattern_id + 1;
+                                    {
+                                        let reverse_weights = {
+                                            let mut x = current_weights;
+                                            x.reverse();
+                                            x
+                                        };
+
+                                        if add_reverse_patterns {
+                                            let pwm = PWM { weights: reverse_weights, name: format!("{}_reversed", name), pattern_id: pattern_id, min_score: t };
+                                            pwms.push(pwm);
+                                            pattern_id = pattern_id + 1;
+                                        }
+                                    }
+                                    current_weights = Vec::new();
+
                                 },
                                 None => println!("Couldn't find a PWM threshold"),
                             }
