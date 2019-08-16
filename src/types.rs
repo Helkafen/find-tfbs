@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-#[derive(Eq, PartialEq, Clone, Ord, PartialOrd, Debug, Hash)]
+#[derive(Eq, PartialEq, Clone, Ord, PartialOrd, Debug, Hash, Copy)]
 pub enum Nucleotide {
     A, C, G, T, N
 }
@@ -39,14 +39,13 @@ pub struct PWM { pub weights: Vec<Weight>, pub name: String, pub pattern_id: u16
 
 #[derive(Clone)]
 pub struct Weight {
-    pub w_a : i32,
-    pub w_c : i32,
-    pub w_g : i32,
-    pub w_t : i32
+    pub acgtn : Vec<i32>
 }
 
 impl Weight {
     pub fn new(a: i32, c: i32, g: i32, t: i32) -> Weight {
-        return Weight { w_a : a, w_c : c, w_g : g, w_t : t };
+        let mut acgtn = vec![a,c,g,t,0];
+        acgtn.shrink_to_fit();
+        return Weight { acgtn : acgtn };
     }
 }

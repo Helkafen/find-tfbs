@@ -85,13 +85,9 @@ fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>> wher
 }
 
 fn apply_weight(w: &Weight, n: &NucleotidePos) -> i32 {
-    match n.nuc {
-        Nucleotide::A => w.w_a,
-        Nucleotide::C => w.w_c,
-        Nucleotide::G => w.w_g,
-        Nucleotide::T => w.w_t,
-        Nucleotide::N => 0,
-    }
+    let i = n.nuc as usize;
+    let x = unsafe { w.acgtn.get_unchecked(i) };
+    *x
 }
 
 fn apply_weights(pwm: &PWM, haplotype: &[NucleotidePos]) -> i32 {
