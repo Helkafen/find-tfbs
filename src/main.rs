@@ -182,6 +182,7 @@ fn main() {
 
     // A fake and unique position in the chromosome given for each line in the resulting vcf
     let mut fake_position: u32 = 1;
+    let chr = String::from(chromosome).replace("chr", "");
 
     let start_time = SystemTime::now();
 
@@ -200,7 +201,7 @@ fn main() {
             let id_str = format!("{},{},{}-{}",source, pwm_name_dict.get(&pattern_id).expect("Logic error: No pattern name for a pattern_id"), inner_peak.start, inner_peak.end);
             let distinct_counts_str: Vec<String> = distinct_counts.iter().map(|c| c.to_string()).collect();
             let info_str = format!("COUNTS={}", distinct_counts_str.join(","));
-            writer.write(format!("{}\t{}\t{}\t.\t.\t.\t.\tGT\t{}", chromosome, fake_position, id_str, info_str).as_bytes()).expect("Could not write result");
+            writer.write(format!("{}\t{}\t{}\t.\t.\t.\t.\t{}\tGT", chr, fake_position, id_str, info_str).as_bytes()).expect("Could not write result");
             writer.write(genotypes.as_bytes()).expect("Could not write result");
             writer.write("\n".as_bytes()).expect("Could not write result");
             fake_position = fake_position + 1;
