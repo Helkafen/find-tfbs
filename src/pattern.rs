@@ -108,14 +108,32 @@ fn apply_weights(pwm: &PWM, haplotype: &[NucleotidePos]) -> i32 {
     return pwm.weights.iter().zip(haplotype.iter()).map(|(w, n)| apply_weight(w,n)).sum();
 }
 
+fn display_vec_nuc(vec: &Vec<Nucleotide>) -> String {
+    vec.iter().fold(String::new(), |acc, &arg| acc + &arg.to_string())
+}
+
 pub fn matches(pwm: &PWM, haplotype: &Vec<NucleotidePos>, haplotype_ids: Rc<Vec<HaplotypeId>>) -> Vec<Match> {
     let mut res = Vec::new();
-    for i in 0..(haplotype.len()) {
-        let score = apply_weights(&pwm, &haplotype[i..]);
-        if score > pwm.min_score {
-            let m = Match { pos : haplotype[i].pos, pattern_id : pwm.pattern_id, haplotype_ids: haplotype_ids.clone() };
-            //println!("{} {} {} {}>{}",haplotype[i].pos, pwm.pattern_id, haplotype_ids.len(), score, pwm.min_score);
-            res.push(m);
+    if haplotype.len() >= pwm.weights.len() {
+        for i in 0..(haplotype.len()-pwm.weights.len()) {
+            //println!("i:{} hap:{} pwm:{}", i, haplotype.len(), pwm.weights.len());
+            let score = apply_weights(&pwm, &haplotype[i..]);
+            if score > pwm.min_score {
+                let m = Match { pos : haplotype[i].pos, pattern_id : pwm.pattern_id, haplotype_ids: haplotype_ids.clone() };
+                //let mut matched = Vec::new();
+                //for x in &haplotype[i..std::cmp::min(i+pwm.weights.len(), haplotype.len())] {
+                //    matched.push(x.nuc);
+                //}
+                //println!("haplostart/end:{}/{} pos_of_match:{} {} {} {}>{} {}", haplotype[0].pos, haplotype[haplotype.len()-1].pos, haplotype[i].pos, pwm.pattern_id, haplotype_ids.len(), score, pwm.min_score, display_vec_nuc(&matched));
+                //for w in &pwm.weights {
+                //    print!("ACGTN ");
+                //    for v in &w.acgtn {
+                //        print!("{} ",v);
+                //    }
+                //    println!("");
+                //}
+                res.push(m);
+            }
         }
     }
     return res;
