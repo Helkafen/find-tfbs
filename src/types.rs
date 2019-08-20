@@ -1,9 +1,23 @@
 use std::rc::Rc;
+use std::fmt;
 
 #[derive(Eq, PartialEq, Clone, Ord, PartialOrd, Debug, Hash, Copy)]
 pub enum Nucleotide {
     A, C, G, T, N
 }
+
+impl fmt::Display for Nucleotide {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Nucleotide::A => write!(f, "A"),
+            Nucleotide::C => write!(f, "C"),
+            Nucleotide::G => write!(f, "G"),
+            Nucleotide::T => write!(f, "T"),
+            Nucleotide::N => write!(f, "N"),
+        }
+    }
+}
+
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Debug, Clone, Hash)]
 pub struct NucleotidePos {
