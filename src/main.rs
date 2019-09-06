@@ -416,6 +416,24 @@ mod tests {
         assert_eq!(patched3, expected3);
     }
 
+    #[test]
+    fn test_match_gataa() {
+        let pwm = PWM { weights: vec![Weight::new(0,0,100,0), Weight::new(100,0,0,0), Weight::new(0,0,0,100), Weight::new(100,0,0,0), Weight::new(100,0,0,0), ], name: "Example".to_string(), pattern_id: 123, min_score: 499 };
+        let haplotype_with_padding = vec![nucp('N',0), nucp('G',1), nucp('A',2), nucp('T',3), nucp('A',4), nucp('A',5), nucp('N',6)];
+        let haplotype_without_padding = vec![nucp('G',1), nucp('A',2), nucp('T',3), nucp('A',4), nucp('A',5)];
+        let haplotype_ids = Rc::new(vec![HaplotypeId { sample_id: 456, side: HaplotypeSide::Right }]);
+        let ms = matches(&pwm, &haplotype_with_padding, haplotype_ids.clone());
+        assert_eq!(ms.len(), 1);
+        let ms2 = matches(&pwm, &haplotype_without_padding, haplotype_ids.clone());
+        assert_eq!(ms2.len(), 1);
+
+        let pwm2 = PWM { weights: vec![Weight::new(0,0,100,0), Weight::new(100,0,0,0), Weight::new(0,0,0,100), Weight::new(100,0,0,0), Weight::new(100,0,0,0), ], name: "Example".to_string(), pattern_id: 123, min_score: 500 };
+        let ms3 = matches(&pwm2, &haplotype_with_padding, haplotype_ids.clone());
+        assert_eq!(ms3.len(), 0);
+        let ms4 = matches(&pwm2, &haplotype_without_padding, haplotype_ids.clone());
+        assert_eq!(ms4.len(), 0);
+    }
+
     fn nucs(s: &str) -> Vec<Nucleotide> {
         let mut v = Vec::new();
         for c in s.chars() {

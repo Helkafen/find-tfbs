@@ -115,7 +115,7 @@ fn apply_weights(pwm: &PWM, haplotype: &[NucleotidePos]) -> i32 {
 pub fn matches(pwm: &PWM, haplotype: &Vec<NucleotidePos>, haplotype_ids: Rc<Vec<HaplotypeId>>) -> Vec<Match> {
     let mut res = Vec::new();
     if haplotype.len() >= pwm.weights.len() {
-        for i in 0..(haplotype.len()-pwm.weights.len()) {
+        for i in 0..(haplotype.len()-pwm.weights.len()+1) {
             //println!("i:{} hap:{} pwm:{}", i, haplotype.len(), pwm.weights.len());
             let score = apply_weights(&pwm, &haplotype[i..]);
             if score > pwm.min_score {
