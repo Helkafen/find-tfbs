@@ -147,6 +147,7 @@ fn main() {
                         .arg(Arg::with_name("pwm_file")          .short("p").required(true) .takes_value(true) .value_name("PWM")         .long("pwm_file")          .help("PWM file. Ex: HOCOMOCOv11_full_pwms_HUMAN_mono.txt"))
                         .arg(Arg::with_name("pwm_threshold_file").short("t").required(true) .takes_value(true) .value_name("THRESHOLD")   .long("pwm_threshold_file").help("PWM threshold file. Ex: HOCOMOCOv11_full_standard_thresholds_HUMAN_mono.txt"))
                         .arg(Arg::with_name("forward_only")      .short("f").required(false).takes_value(false).value_name("FORWARD_ONLY").long("forward_only")      .help("Only examine the forward strand"))
+                        .arg(Arg::with_name("threads")           .short("n").required(false).takes_value(true) .value_name("THREADS")     .long("threads")           .help("Size of the thread pool, in addition to the writer thread"))
                         .get_matches();
 
     let chromosome               = opt_matches.value_of("chromosome").unwrap();                     //1
@@ -159,6 +160,10 @@ fn main() {
     let output_file              = Arc::new(opt_matches.value_of("output").unwrap().to_string());   //"test2.gz";
     let forward_only: bool       = opt_matches.is_present("forward_only");
 
+    if let Some(s) = opt_matches.value_of("threads") {
+        let n = s.to_string().parse().expect("Cannot parse thread number");
+        if n<1 { panic!("Wrong number of threads"); } else { rayon::ThreadPoolBuilder::new().num_threads(n).build_global().unwrap(); }
+    }
 
     let pwm_list: Vec<PWM> = parse_pwm_files(pwm_file, pwm_threshold_file, !forward_only).iter().filter(|p| wanted_pwms.contains(&p.name)).cloned().collect();
     let mut pwm_name_dict = HashMap::new();
