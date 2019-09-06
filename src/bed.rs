@@ -25,9 +25,15 @@ fn sum_peak_sizes(peaks: &Vec<range::Range>) -> u64 {
 pub fn load_peak_files(bed_files: &Vec<&str>, chromosome: &str) -> (Vec<range::Range>, HashMap<String, Vec<range::Range>>) {
     let mut peak_map: HashMap<String, Vec<range::Range>> = HashMap::new();
     for bed_file in bed_files {
-        let peaks = load_bed(&bed_file.to_string(), chromosome);
-        println!("Loaded {}.bed:\t {} peaks covering {} bp", bed_file, peaks.len(), sum_peak_sizes(&peaks));
-        peak_map.insert(bed_file.to_string(), peaks);
+        if Path::new(bed_file).exists() {
+            let peaks = load_bed(&bed_file.to_string(), chromosome);
+            println!("Loaded {}:\t {} peaks covering {} bp", bed_file, peaks.len(), sum_peak_sizes(&peaks));
+            peak_map.insert(bed_file.to_string(), peaks);
+        }
+        else {
+            panic!("Bed file {} does not exist", bed_file);
+        }
+
     }
     let vals: Vec<Vec<range::Range>> = peak_map.values().map(|x| x.clone()).collect();
     let rs: range::RangeStack = vals.concat().iter().collect();
