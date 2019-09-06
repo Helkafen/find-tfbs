@@ -162,7 +162,7 @@ fn main() {
 
     if let Some(s) = opt_matches.value_of("threads") {
         let n = s.to_string().parse().expect("Cannot parse thread number");
-        if n<1 { panic!("Wrong number of threads"); } else { rayon::ThreadPoolBuilder::new().num_threads(n).build_global().unwrap(); }
+        if n<1 { panic!("Wrong number of threads"); } else { rayon::ThreadPoolBuilder::new().num_threads(n).build_global().expect("Couldn't build the thread pool"); }
     }
 
     let pwm_list: Vec<PWM> = parse_pwm_files(pwm_file, pwm_threshold_file, !forward_only).iter().filter(|p| wanted_pwms.contains(&p.name)).cloned().collect();
@@ -336,83 +336,108 @@ mod tests {
     fn test_patch_haplotype_with_no_diff() {
         let diffs = Vec::new();
         let patched = patch_haplotype(&Range::new(1,2), &diffs, &ref_haplotype());
-        let expected = vec![NucleotidePos { nuc: Nucleotide::C, pos: 1 }, NucleotidePos { nuc: Nucleotide::G, pos: 2 }];
+        let expected = vec![nucp('C',1), nucp('G',2)];
         assert_eq!(patched, expected);
 
         let patched2 = patch_haplotype(&Range::new(0,2), &diffs, &ref_haplotype());
-        let expected2 = vec![NucleotidePos { nuc: Nucleotide::A, pos: 0 }, NucleotidePos { nuc: Nucleotide::C, pos: 1 }, NucleotidePos { nuc: Nucleotide::G, pos: 2 }];
+        let expected2 = vec![nucp('A',0), nucp('C',1), nucp('G',2)];
         assert_eq!(patched2, expected2);
 
         let patched3 = patch_haplotype(&Range::new(0,5), &diffs, &ref_haplotype());
-        let expected3 = vec![NucleotidePos { nuc: Nucleotide::A, pos: 0 }, NucleotidePos { nuc: Nucleotide::C, pos: 1 }, NucleotidePos { nuc: Nucleotide::G, pos: 2 }, NucleotidePos { nuc: Nucleotide::T, pos: 3 }];
+        let expected3 = vec![nucp('A',0), nucp('C',1), nucp('G',2), nucp('T',3)];
         assert_eq!(patched3, expected3);
     }
 
     #[test]
     fn test_patch_haplotype_one_snp() {
-        let diffs = vec![Diff { pos: 100, reference: vec![Nucleotide::A], alternative: vec![Nucleotide::C] }];
+        let diffs = vec![Diff { pos: 100, reference: nucs("A"), alternative: nucs("C") }];
         let patched = patch_haplotype(&Range::new(1,2), &diffs, &ref_haplotype());
-        let expected = vec![NucleotidePos { nuc: Nucleotide::C, pos: 1 }, NucleotidePos { nuc: Nucleotide::G, pos: 2 }];
+        let expected = vec![nucp('C',1), nucp('G',2)];
         assert_eq!(patched, expected);
 
-        let diffs2 = vec![Diff { pos: 1, reference: vec![Nucleotide::C], alternative: vec![Nucleotide::N] }];
+        let diffs2 = vec![Diff { pos: 1, reference: nucs("C"), alternative: nucs("N") }];
         let patched2 = patch_haplotype(&Range::new(1,2), &diffs2, &ref_haplotype());
-        let expected2 = vec![NucleotidePos { nuc: Nucleotide::N, pos: 1 }, NucleotidePos { nuc: Nucleotide::G, pos: 2 }];
+        let expected2 = vec![nucp('N',1), nucp('G',2)];
         assert_eq!(patched2, expected2);
 
-        let diffs3 = vec![Diff { pos: 2, reference: vec![Nucleotide::G], alternative: vec![Nucleotide::A] }];
+        let diffs3 = vec![Diff { pos: 2, reference: nucs("G"), alternative: nucs("A") }];
         let patched3 = patch_haplotype(&Range::new(1,2), &diffs3, &ref_haplotype());
-        let expected3 = vec![NucleotidePos { nuc: Nucleotide::C, pos: 1 }, NucleotidePos { nuc: Nucleotide::A, pos: 2 }];
+        let expected3 = vec![nucp('C',1), nucp('A',2)];
         assert_eq!(patched3, expected3);
     }
 
     #[test]
     fn test_patch_haplotype_two_snp() {
-        let diffs = vec![Diff { pos: 1, reference: vec![Nucleotide::C], alternative: vec![Nucleotide::N] }, Diff { pos: 2, reference: vec![Nucleotide::G], alternative: vec![Nucleotide::A] }];
+        let diffs = vec![Diff { pos: 1, reference: nucs("C"), alternative: nucs("N")}, Diff { pos: 2, reference: nucs("G"), alternative: nucs("A") }];
         let patched = patch_haplotype(&Range::new(1,2), &diffs, &ref_haplotype());
-        let expected = vec![NucleotidePos { nuc: Nucleotide::N, pos: 1 }, NucleotidePos { nuc: Nucleotide::A, pos: 2 }];
+        let expected = vec![nucp('N',1), nucp('A',2)];
         assert_eq!(patched, expected);
 
-        let diffs2 = vec![Diff { pos: 1, reference: vec![Nucleotide::C], alternative: vec![Nucleotide::N] }, Diff { pos: 4, reference: vec![Nucleotide::G], alternative: vec![Nucleotide::A] }];
+        let diffs2 = vec![Diff { pos: 1, reference: nucs("C"), alternative: nucs("N") }, Diff { pos: 4, reference: nucs("G"), alternative: nucs("A") }];
         let patched2 = patch_haplotype(&Range::new(1,2), &diffs2, &ref_haplotype());
-        let expected2 = vec![NucleotidePos { nuc: Nucleotide::N, pos: 1 }, NucleotidePos { nuc: Nucleotide::G, pos: 2 }];
+        let expected2 = vec![nucp('N',1), nucp('G',2)];
         assert_eq!(patched2, expected2);
     }
 
     #[test]
     fn test_patch_haplotype_one_insert() {
-        let diffs = vec![Diff { pos: 1, reference: vec![Nucleotide::C], alternative: vec![Nucleotide::N, Nucleotide::N] }];
+        let diffs = vec![Diff { pos: 1, reference: nucs("C"), alternative: nucs("NN") }];
         let patched = patch_haplotype(&Range::new(1,2), &diffs, &ref_haplotype());
-        let expected = vec![NucleotidePos { nuc: Nucleotide::N, pos: 1 }, NucleotidePos { nuc: Nucleotide::N, pos: 1 }, NucleotidePos { nuc: Nucleotide::G, pos: 2 }];
+        let expected = vec![nucp('N',1), nucp('N',1), nucp('G',2)];
         assert_eq!(patched, expected);
 
-        let diffs2 = vec![Diff { pos: 2, reference: vec![Nucleotide::C], alternative: vec![Nucleotide::N, Nucleotide::N] }];
+        let diffs2 = vec![Diff { pos: 2, reference: nucs("C"), alternative: nucs("NN") }];
         let patched2 = patch_haplotype(&Range::new(1,2), &diffs2, &ref_haplotype());
-        let expected2 = vec![NucleotidePos { nuc: Nucleotide::C, pos: 1 }, NucleotidePos { nuc: Nucleotide::N, pos: 2 }, NucleotidePos { nuc: Nucleotide::N, pos: 2 }];
+        let expected2 = vec![nucp('C',1), nucp('N',2), nucp('N',2)];
         assert_eq!(patched2, expected2);
 
-        let diffs3 = vec![Diff { pos: 3, reference: vec![Nucleotide::C], alternative: vec![Nucleotide::N, Nucleotide::N] }];
+        let diffs3 = vec![Diff { pos: 3, reference: nucs("C"), alternative: nucs("NN") }];
         let patched3 = patch_haplotype(&Range::new(1,2), &diffs3, &ref_haplotype());
-        let expected3 = vec![NucleotidePos { nuc: Nucleotide::C, pos: 1 }, NucleotidePos { nuc: Nucleotide::G, pos: 2 }];
+        let expected3 = vec![nucp('C',1), nucp('G',2)];
         assert_eq!(patched3, expected3);
     }
 
     #[test]
     fn test_patch_haplotype_one_deletion() {
-        let diffs = vec![Diff { pos: 1, reference: vec![Nucleotide::C, Nucleotide::G], alternative: vec![Nucleotide::C] }];
+        let diffs = vec![Diff { pos: 1, reference: nucs("CG"), alternative: nucs("C") }];
         let patched = patch_haplotype(&Range::new(1,2), &diffs, &ref_haplotype());
-        let expected = vec![NucleotidePos { nuc: Nucleotide::C, pos: 1 }];
+        let expected = vec![nucp('C',1)];
         assert_eq!(patched, expected);
 
-        let diffs2 = vec![Diff { pos: 2, reference: vec![Nucleotide::G, Nucleotide::T], alternative: vec![Nucleotide::G] }];
+        let diffs2 = vec![Diff { pos: 2, reference: nucs("GT"), alternative: nucs("G") }];
         let patched2 = patch_haplotype(&Range::new(1,2), &diffs2, &ref_haplotype());
-        let expected2 = vec![NucleotidePos { nuc: Nucleotide::C, pos: 1 }, NucleotidePos { nuc: Nucleotide::G, pos: 2 }];
+        let expected2 = vec![nucp('C',1), nucp('G',2)];
         assert_eq!(patched2, expected2);
 
         // For simplicity, do not apply a Diff that starts before the window we're observing
-        let diffs3 = vec![Diff { pos: 0, reference: vec![Nucleotide::A, Nucleotide::C], alternative: vec![Nucleotide::A] }];
+        let diffs3 = vec![Diff { pos: 0, reference: nucs("AC"), alternative: nucs("A") }];
         let patched3 = patch_haplotype(&Range::new(1,2), &diffs3, &ref_haplotype());
-        let expected3 = vec![NucleotidePos { nuc: Nucleotide::C, pos: 1 }, NucleotidePos { nuc: Nucleotide::G, pos: 2 }];
+        let expected3 = vec![nucp('C',1), nucp('G',2)];
         assert_eq!(patched3, expected3);
+    }
+
+    fn nucs(s: &str) -> Vec<Nucleotide> {
+        let mut v = Vec::new();
+        for c in s.chars() {
+            if c == 'N' { v.push(Nucleotide::N); }
+            else if c == 'A' { v.push(Nucleotide::A); }
+            else if c == 'C' { v.push(Nucleotide::C); }
+            else if c == 'G' { v.push(Nucleotide::G); }
+            else if c == 'T' { v.push(Nucleotide::T); }
+            else { panic!("Wrong nucleotide sequence in tests"); }
+        }
+        return v;
+    }
+
+    fn nucp(c: char, p: u64) -> NucleotidePos {
+        let nuc = {
+            if c == 'N'      { Nucleotide::N }
+            else if c == 'A' { Nucleotide::A }
+            else if c == 'C' { Nucleotide::C }
+            else if c == 'G' { Nucleotide::G }
+            else if c == 'T' { Nucleotide::T }
+            else { panic!("Wrong nucleotide sequence in tests"); }
+        };
+        return NucleotidePos { nuc: nuc, pos: p };
     }
 }
