@@ -16,6 +16,11 @@ use std::cmp::min;
 use std::path::Path;
 use std::time::SystemTime;
 
+use std::sync::mpsc::{Sender, Receiver};
+use std::sync::mpsc;
+use std::thread;
+use std::sync::Arc;
+
 use clap::{Arg, App};
 
 mod types;
@@ -124,34 +129,36 @@ fn read_peak_in_reference_genome(chromosome: &str, peak: &Range, reference_genom
     to_nucleotides_pos(&text, &peak)
 }
 
-// cargo run --release -- -c chr1 -i /home/seb/masters/topmed/source/TOPMed_dbGaP_20180710/dbGaP-12336/65066/topmed-dcc/exchange/phs000964_TOPMed_WGS_JHS/Combined_Study_Data/Genotypes/freeze.6a/phased/freeze.6a.chr1.pass_only.phased.bcf -b bed/Bcell-13.bed,bed/CD4-9.bed,bed/CD8-10.bed,bed/CLP-14.bed,bed/CMP-4.bed,bed/Erythro-15.bed,bed/GMP-5.bed,bed/HSC-1.bed,bed/LMPP-3.bed,bed/MCP.bed,bed/mDC.bed,bed/MEGA1.bed,bed/MEGA2.bed,bed/MEP-6.bed,bed/Mono-7.bed,bed/MPP-2.bed,bed/Nkcell-11.bed,bed/pDC.bed -o test2.gz -p /home/seb/masters/regu/dnamotifs/HOCOMOCOv11_full_pwms_HUMAN_mono.txt -n JUNB_HUMAN.H11MO.0.A,FOSL1_HUMAN.H11MO.0.A,FOSL2_HUMAN.H11MO.0.A,JDP2_HUMAN.H11MO.0.D,GATA1_HUMAN.H11MO.0.A,GATA2_HUMAN.H11MO.0.A,GATA3_HUMAN.H11MO.0.A,GATA4_HUMAN.H11MO.0.A,GATA5_HUMAN.H11MO.0.D,GATA6_HUMAN.H11MO.0.A,JUN_HUMAN.H11MO.0.A,JUND_HUMAN.H11MO.0.A,BATF_HUMAN.H11MO.0.A,ATF3_HUMAN.H11MO.0.A,BACH1_HUMAN.H11MO.0.A,BACH2_HUMAN.H11MO.0.A,NFE2_HUMAN.H11MO.0.A,CEBPA_HUMAN.H11MO.0.A,CEBPB_HUMAN.H11MO.0.A,CEBPD_HUMAN.H11MO.0.C,CEBPE_HUMAN.H11MO.0.A,CEBPG_HUMAN.H11MO.0.B,SPIB_HUMAN.H11MO.0.A,IRF8_HUMAN.H11MO.0.B,SPI1_HUMAN.H11MO.0.A,MESP1_HUMAN.H11MO.0.D,ID4_HUMAN.H11MO.0.D,HTF4_HUMAN.H11MO.0.A,ITF2_HUMAN.H11MO.0.C,STAT1_HUMAN.H11MO.0.A,STAT2_HUMAN.H11MO.0.A,SPIC_HUMAN.H11MO.0.D,CTCF_HUMAN.H11MO.0.A,IRF1_HUMAN.H11MO.0.A,DBP_HUMAN.H11MO.0.B,MAFK_HUMAN.H11MO.1.A,ATF4_HUMAN.H11MO.0.A,ASCL1_HUMAN.H11MO.0.A,ASCL2_HUMAN.H11MO.0.D,TFE2_HUMAN.H11MO.0.A,MYOD1_HUMAN.H11MO.0.A,EVI1_HUMAN.H11MO.0.B,IRF3_HUMAN.H11MO.0.B,ZEB1_HUMAN.H11MO.0.A,IRF9_HUMAN.H11MO.0.C,HEN1_HUMAN.H11MO.0.C,LYL1_HUMAN.H11MO.0.A -t /home/seb/masters/regu/dnamotifs/hocomoco_thresholds.tab -r /home/seb/masters/hg38.fa
+// cargo run --release -- -c chr1 -i /home/seb/masters/topmed/source/TOPMed_dbGaP_20180710/dbGaP-12336/68779/topmed-dcc/exchange/phs000964_TOPMed_WGS_JHS/Combined_Study_Data/Genotypes/freeze.8/phased/freeze.8.chr1.pass_only.phased.bcf -b bed/Bcell-13.bed,bed/CD4-9.bed,bed/CD8-10.bed,bed/CLP-14.bed,bed/CMP-4.bed,bed/Erythro-15.bed,bed/GMP-5.bed,bed/HSC-1.bed,bed/LMPP-3.bed,bed/MCP.bed,bed/mDC.bed,bed/MEGA1.bed,bed/MEGA2.bed,bed/MEP-6.bed,bed/Mono-7.bed,bed/MPP-2.bed,bed/Nkcell-11.bed,bed/pDC.bed -o test2.gz -p /home/seb/masters/regu/dnamotifs/HOCOMOCOv11_full_pwms_HUMAN_mono.txt -n JUNB_HUMAN.H11MO.0.A,FOSL1_HUMAN.H11MO.0.A,FOSL2_HUMAN.H11MO.0.A,JDP2_HUMAN.H11MO.0.D,GATA1_HUMAN.H11MO.0.A,GATA2_HUMAN.H11MO.0.A,GATA3_HUMAN.H11MO.0.A,GATA4_HUMAN.H11MO.0.A,GATA5_HUMAN.H11MO.0.D,GATA6_HUMAN.H11MO.0.A,JUN_HUMAN.H11MO.0.A,JUND_HUMAN.H11MO.0.A,BATF_HUMAN.H11MO.0.A,ATF3_HUMAN.H11MO.0.A,BACH1_HUMAN.H11MO.0.A,BACH2_HUMAN.H11MO.0.A,NFE2_HUMAN.H11MO.0.A,CEBPA_HUMAN.H11MO.0.A,CEBPB_HUMAN.H11MO.0.A,CEBPD_HUMAN.H11MO.0.C,CEBPE_HUMAN.H11MO.0.A,CEBPG_HUMAN.H11MO.0.B,SPIB_HUMAN.H11MO.0.A,IRF8_HUMAN.H11MO.0.B,SPI1_HUMAN.H11MO.0.A,MESP1_HUMAN.H11MO.0.D,ID4_HUMAN.H11MO.0.D,HTF4_HUMAN.H11MO.0.A,ITF2_HUMAN.H11MO.0.C,STAT1_HUMAN.H11MO.0.A,STAT2_HUMAN.H11MO.0.A,SPIC_HUMAN.H11MO.0.D,CTCF_HUMAN.H11MO.0.A,IRF1_HUMAN.H11MO.0.A,DBP_HUMAN.H11MO.0.B,MAFK_HUMAN.H11MO.1.A,ATF4_HUMAN.H11MO.0.A,ASCL1_HUMAN.H11MO.0.A,ASCL2_HUMAN.H11MO.0.D,TFE2_HUMAN.H11MO.0.A,MYOD1_HUMAN.H11MO.0.A,EVI1_HUMAN.H11MO.0.B,IRF3_HUMAN.H11MO.0.B,ZEB1_HUMAN.H11MO.0.A,IRF9_HUMAN.H11MO.0.C,HEN1_HUMAN.H11MO.0.C,LYL1_HUMAN.H11MO.0.A -t /home/seb/masters/regu/dnamotifs/hocomoco_thresholds.tab -r /home/seb/masters/hg38.fa
 
 fn main() {
     let opt_matches = App::new("VCF_PWM")
                         .version("1.0")
                         .author("Sébastian Méric de Bellefon <arnaudpourseb@gmail.com>")
                         .about("Find patterns in a VCF file")
-                        .arg(Arg::with_name("chromosome")        .short("c").required(true).takes_value(true).value_name("CHROM")    .long("chromosome")        .help("Chromosome to scan. Ex: 'chr1'"))
-                        .arg(Arg::with_name("bcf")               .short("i").required(true).takes_value(true).value_name("IN")       .long("input")             .help("BCF input file to use"))
-                        .arg(Arg::with_name("output")            .short("o").required(true).takes_value(true).value_name("OUT")      .long("output")            .help("Output VCF file"))
-                        .arg(Arg::with_name("ref")               .short("r").required(true).takes_value(true).value_name("REF")      .long("reference")         .help("Reference genome. Ex: hg38.fa"))
-                        .arg(Arg::with_name("bed_files")         .short("b").required(true).takes_value(true).value_name("BED")      .long("bed")               .help("Bed files containing the regions to scan"))
-                        .arg(Arg::with_name("pwm_names")         .short("n").required(true).takes_value(true).value_name("PWM_NAMES").long("pwm_names")         .help("List of PWM names to scan. Ex: CTCF_HUMAN.H11MO.0.A,IRF1_HUMAN.H11MO.0.A"))
-                        .arg(Arg::with_name("pwm_file")          .short("p").required(true).takes_value(true).value_name("PWM")      .long("pwm_file")          .help("PWM file. Ex: HOCOMOCOv11_full_pwms_HUMAN_mono.txt"))
-                        .arg(Arg::with_name("pwm_threshold_file").short("t").required(true).takes_value(true).value_name("THRESHOLD").long("pwm_threshold_file").help("PWM threshold file. Ex: HOCOMOCOv11_full_standard_thresholds_HUMAN_mono.txt"))
+                        .arg(Arg::with_name("chromosome")        .short("c").required(true) .takes_value(true) .value_name("CHROM")       .long("chromosome")        .help("Chromosome to scan. Ex: 'chr1'"))
+                        .arg(Arg::with_name("bcf")               .short("i").required(true) .takes_value(true) .value_name("IN")          .long("input")             .help("BCF input file to use"))
+                        .arg(Arg::with_name("output")            .short("o").required(true) .takes_value(true) .value_name("OUT")         .long("output")            .help("Output VCF file"))
+                        .arg(Arg::with_name("ref")               .short("r").required(true) .takes_value(true) .value_name("REF")         .long("reference")         .help("Reference genome. Ex: hg38.fa"))
+                        .arg(Arg::with_name("bed_files")         .short("b").required(true) .takes_value(true) .value_name("BED")         .long("bed")               .help("Bed files containing the regions to scan"))
+                        .arg(Arg::with_name("pwm_names")         .short("n").required(true) .takes_value(true) .value_name("PWM_NAMES")   .long("pwm_names")         .help("List of PWM names to scan. Ex: CTCF_HUMAN.H11MO.0.A,IRF1_HUMAN.H11MO.0.A"))
+                        .arg(Arg::with_name("pwm_file")          .short("p").required(true) .takes_value(true) .value_name("PWM")         .long("pwm_file")          .help("PWM file. Ex: HOCOMOCOv11_full_pwms_HUMAN_mono.txt"))
+                        .arg(Arg::with_name("pwm_threshold_file").short("t").required(true) .takes_value(true) .value_name("THRESHOLD")   .long("pwm_threshold_file").help("PWM threshold file. Ex: HOCOMOCOv11_full_standard_thresholds_HUMAN_mono.txt"))
+                        .arg(Arg::with_name("forward_only")      .short("f").required(false).takes_value(false).value_name("FORWARD_ONLY").long("forward_only")      .help("Only examine the forward strand"))
                         .get_matches();
 
-    let chromosome               = opt_matches.value_of("chromosome").unwrap();                     //chr1
+    let chromosome               = opt_matches.value_of("chromosome").unwrap();                     //1
     let bcf                      = opt_matches.value_of("bcf").unwrap();                            //format!("/home/seb/masters/topmed/source/TOPMed_dbGaP_20180710/dbGaP-12336/65066/topmed-dcc/exchange/phs000964_TOPMed_WGS_JHS/Combined_Study_Data/Genotypes/freeze.6a/phased/freeze.6a.{}.pass_only.phased.bcf", chromosome);
     let bed_files: Vec<&str>     = opt_matches.value_of("bed_files").unwrap().split(',').collect(); //bed/Bcell-13.bed,bed/CD4-9.bed,bed/CD8-10.bed,bed/CLP-14.bed,bed/CMP-4.bed,bed/Erythro-15.bed,bed/GMP-5.bed,bed/HSC-1.bed,bed/LMPP-3.bed,bed/MCP.bed,bed/mDC.bed,bed/MEGA1.bed,bed/MEGA2.bed,bed/MEP-6.bed,bed/Mono-7.bed,bed/MPP-2.bed,bed/Nkcell-11.bed,bed/pDC.bed
     let reference_genome_file    = opt_matches.value_of("ref").unwrap();                            //"/home/seb/masters/hg38.fa";
     let pwm_file                 = opt_matches.value_of("pwm_file").unwrap();                       //"/home/seb/masters/regu/dnamotifs/HOCOMOCOv11_full_pwms_HUMAN_mono.txt";
     let pwm_threshold_file       = opt_matches.value_of("pwm_threshold_file").unwrap();             //"/home/seb/masters/regu/dnamotifs/hocomoco_thresholds.tab";
     let wanted_pwms: Vec<String> = opt_matches.value_of("pwm_names").unwrap().split(',').map(|s| s.to_string()).collect(); //"JUNB_HUMAN.H11MO.0.A,FOSL1_HUMAN.H11MO.0.A,FOSL2_HUMAN.H11MO.0.A,JDP2_HUMAN.H11MO.0.D,GATA1_HUMAN.H11MO.0.A,GATA2_HUMAN.H11MO.0.A,GATA3_HUMAN.H11MO.0.A,GATA4_HUMAN.H11MO.0.A,GATA5_HUMAN.H11MO.0.D,GATA6_HUMAN.H11MO.0.A,JUN_HUMAN.H11MO.0.A,JUND_HUMAN.H11MO.0.A,BATF_HUMAN.H11MO.0.A,ATF3_HUMAN.H11MO.0.A,BACH1_HUMAN.H11MO.0.A,BACH2_HUMAN.H11MO.0.A,NFE2_HUMAN.H11MO.0.A,CEBPA_HUMAN.H11MO.0.A,CEBPB_HUMAN.H11MO.0.A,CEBPD_HUMAN.H11MO.0.C,CEBPE_HUMAN.H11MO.0.A,CEBPG_HUMAN.H11MO.0.B,SPIB_HUMAN.H11MO.0.A,IRF8_HUMAN.H11MO.0.B,SPI1_HUMAN.H11MO.0.A,MESP1_HUMAN.H11MO.0.D,ID4_HUMAN.H11MO.0.D,HTF4_HUMAN.H11MO.0.A,ITF2_HUMAN.H11MO.0.C,STAT1_HUMAN.H11MO.0.A,STAT2_HUMAN.H11MO.0.A,SPIC_HUMAN.H11MO.0.D,CTCF_HUMAN.H11MO.0.A,IRF1_HUMAN.H11MO.0.A,DBP_HUMAN.H11MO.0.B,MAFK_HUMAN.H11MO.1.A,ATF4_HUMAN.H11MO.0.A,ASCL1_HUMAN.H11MO.0.A,ASCL2_HUMAN.H11MO.0.D,TFE2_HUMAN.H11MO.0.A,MYOD1_HUMAN.H11MO.0.A,EVI1_HUMAN.H11MO.0.B,IRF3_HUMAN.H11MO.0.B,ZEB1_HUMAN.H11MO.0.A,IRF9_HUMAN.H11MO.0.C,HEN1_HUMAN.H11MO.0.C,LYL1_HUMAN.H11MO.0.A".split(',').into_iter().map(|a| a.to_string()).collect();
-    let output_file              = opt_matches.value_of("output").unwrap();                         //"test2.gz";
+    let output_file              = Arc::new(opt_matches.value_of("output").unwrap().to_string());   //"test2.gz";
+    let forward_only: bool       = opt_matches.is_present("forward_only");
 
 
-    let pwm_list: Vec<PWM> = parse_pwm_files(pwm_file, pwm_threshold_file, true).iter().filter(|p| wanted_pwms.contains(&p.name)).cloned().collect();
+    let pwm_list: Vec<PWM> = parse_pwm_files(pwm_file, pwm_threshold_file, !forward_only).iter().filter(|p| wanted_pwms.contains(&p.name)).cloned().collect();
     let mut pwm_name_dict = HashMap::new();
     for pwm in &pwm_list {
         println!("PWM {} {}", pwm.name, pwm.min_score);
@@ -162,9 +169,22 @@ fn main() {
 
     let mut reader = IndexedReader::from_path(bcf).expect("Error while opening the bcf file");
     let mut reference_genome = bio::io::fasta::IndexedReader::from_file(&Path::new(reference_genome_file)).expect("Error while opening the reference genome");
-    let mut writer = BGzWriter::new(fs::File::create(output_file).expect("Could not create output file"));
 
-    let rid = reader.header().name2rid(chromosome.as_bytes()).unwrap();
+
+    let (tx, rx): (Sender<String>, Receiver<String>) = mpsc::channel();
+
+    let _writer_thread = thread::spawn(move || {
+        let filename = Arc::clone(&output_file).to_string();
+        let mut writer = BGzWriter::new(fs::File::create(filename).expect("Could not create output file"));
+        loop {
+            match rx.recv() {
+                Ok(s) => { writer.write(s.as_bytes()).expect("Could not write bytes to output file"); }
+                Err(_) => { break; }
+            }
+        };
+    });
+
+
     let samples = get_sample_names(&mut reader);
     let sample_count = samples.len();
     let null_count: Vec<u32> = repeat(sample_count, 0);
@@ -174,11 +194,11 @@ fn main() {
     let all_haplotypes_with_reference_genome: HashSet<HaplotypeId> = all_haplotype_ids(sample_count);
 
     // Write header in output file
-    writer.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT".as_bytes()).expect("Could not create output file");
+    tx.send("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT".to_string()).expect("Could not create output file");
     for sample in samples {
-        writer.write("\t".as_bytes()).expect("Could not create output file");
-        writer.write(sample.as_bytes()).expect("Could not create output file");
-    }writer.write("\n".as_bytes()).expect("Could not create output file");
+        tx.send("\t".to_string()).expect("Could not create output file");
+        tx.send(sample.clone()).expect("Could not create output file");
+    }tx.send("\n".to_string()).expect("Could not create output file");
 
     // A fake and unique position in the chromosome given for each line in the resulting vcf
     let mut fake_position: u32 = 1;
@@ -201,9 +221,9 @@ fn main() {
             let id_str = format!("{},{},{}-{}",source, pwm_name_dict.get(&pattern_id).expect("Logic error: No pattern name for a pattern_id"), inner_peak.start, inner_peak.end);
             let distinct_counts_str: Vec<String> = distinct_counts.iter().map(|c| c.to_string()).collect();
             let info_str = format!("COUNTS={}", distinct_counts_str.join(","));
-            writer.write(format!("{}\t{}\t{}\t.\t.\t.\t.\t{}\tGT", chr, fake_position, id_str, info_str).as_bytes()).expect("Could not write result");
-            writer.write(genotypes.as_bytes()).expect("Could not write result");
-            writer.write("\n".as_bytes()).expect("Could not write result");
+            tx.send(format!("{}\t{}\t{}\t.\t.\t.\t.\t{}\tGT", chr, fake_position, id_str, info_str).to_string()).expect("Could not write result");
+            tx.send(genotypes.to_string()).expect("Could not write result");
+            tx.send("\n".to_string()).expect("Could not write result");
             fake_position = fake_position + 1;
         }
 
@@ -213,6 +233,7 @@ fn main() {
         println!("Peak {}/{}\t{} ms ({} total)\t{}\t{}\t{} haplotypes\t{} variants\t{} matches", peak_id, number_of_peaks, peak_time_elapsed, global_time_elapsed, peak.start, peak.end, number_of_haplotypes, number_of_variants, number_of_matches);
     }
 }
+
 
 fn counts_as_genotypes(v: Vec<u32>) -> (Vec<u32>, String) {
     let mut res = String::with_capacity(v.len()*4);

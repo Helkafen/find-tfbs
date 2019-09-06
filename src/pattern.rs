@@ -108,9 +108,9 @@ fn apply_weights(pwm: &PWM, haplotype: &[NucleotidePos]) -> i32 {
     return pwm.weights.iter().zip(haplotype.iter()).map(|(w, n)| apply_weight(w,n)).sum();
 }
 
-fn display_vec_nuc(vec: &Vec<Nucleotide>) -> String {
-    vec.iter().fold(String::new(), |acc, &arg| acc + &arg.to_string())
-}
+//fn display_vec_nuc(vec: &Vec<Nucleotide>) -> String {
+//    vec.iter().fold(String::new(), |acc, &arg| acc + &arg.to_string())
+//}
 
 pub fn matches(pwm: &PWM, haplotype: &Vec<NucleotidePos>, haplotype_ids: Rc<Vec<HaplotypeId>>) -> Vec<Match> {
     let mut res = Vec::new();
