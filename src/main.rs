@@ -1,6 +1,7 @@
 extern crate bio;
 extern crate bgzip;
 extern crate clap;
+extern crate rayon;
 
 use std::rc::Rc;
 use rust_htslib::bcf::*;
@@ -19,7 +20,8 @@ use std::time::SystemTime;
 use std::sync::mpsc::{Sender, Receiver};
 use std::sync::mpsc;
 use std::thread;
-use std::sync::Arc;
+use std::sync::{Arc,Mutex};
+use rayon::prelude::*;
 
 use clap::{Arg, App};
 
@@ -167,10 +169,6 @@ fn main() {
 
     let (merged_peaks, peak_map) = load_peak_files(&bed_files, chromosome);
 
-    let mut reader = IndexedReader::from_path(bcf).expect("Error while opening the bcf file");
-    let mut reference_genome = bio::io::fasta::IndexedReader::from_file(&Path::new(reference_genome_file)).expect("Error while opening the reference genome");
-
-
     let (tx, rx): (Sender<String>, Receiver<String>) = mpsc::channel();
 
     let _writer_thread = thread::spawn(move || {
@@ -184,12 +182,11 @@ fn main() {
         };
     });
 
-
+    let mut reader = IndexedReader::from_path(bcf).expect("Error while opening the bcf file");
     let samples = get_sample_names(&mut reader);
     let sample_count = samples.len();
     let null_count: Vec<u32> = repeat(sample_count, 0);
     println!("Number of samples: {}", sample_count);
-    let mut peak_id = 0;
     let number_of_peaks = &merged_peaks.len();
     let all_haplotypes_with_reference_genome: HashSet<HaplotypeId> = all_haplotype_ids(sample_count);
 
@@ -201,14 +198,17 @@ fn main() {
     }tx.send("\n".to_string()).expect("Could not create output file");
 
     // A fake and unique position in the chromosome given for each line in the resulting vcf
-    let mut fake_position: u32 = 1;
+    let fake_position: Arc<Mutex<u32>> = Arc::new(Mutex::new(1));
+    let number_of_peaks_processed: Arc<Mutex<u32>> = Arc::new(Mutex::new(0));
     let chr = String::from(chromosome).replace("chr", "");
 
     let start_time = SystemTime::now();
 
-    for peak in merged_peaks {
+    merged_peaks.into_par_iter().for_each_with(tx, |txx, peak| {
+        let mut reader = IndexedReader::from_path(bcf).expect("Error while opening the bcf file");
+        let mut reference_genome = bio::io::fasta::IndexedReader::from_file(&Path::new(reference_genome_file)).expect("Error while opening the reference genome");
+
         let peak_start_time = SystemTime::now();
-        peak_id = peak_id + 1;
 
         let ref_haplotype = read_peak_in_reference_genome(chromosome, &peak, &mut reference_genome);
 
@@ -221,17 +221,18 @@ fn main() {
             let id_str = format!("{},{},{}-{}",source, pwm_name_dict.get(&pattern_id).expect("Logic error: No pattern name for a pattern_id"), inner_peak.start, inner_peak.end);
             let distinct_counts_str: Vec<String> = distinct_counts.iter().map(|c| c.to_string()).collect();
             let info_str = format!("COUNTS={}", distinct_counts_str.join(","));
-            tx.send(format!("{}\t{}\t{}\t.\t.\t.\t.\t{}\tGT", chr, fake_position, id_str, info_str).to_string()).expect("Could not write result");
-            tx.send(genotypes.to_string()).expect("Could not write result");
-            tx.send("\n".to_string()).expect("Could not write result");
-            fake_position = fake_position + 1;
+            txx.send(format!("{}\t{}\t{}\t.\t.\t.\t.\t{}\tGT", chr, fake_position.lock().unwrap(), id_str, info_str).to_string()).expect("Could not write result");
+            txx.send(genotypes.to_string()).expect("Could not write result");
+            txx.send("\n".to_string()).expect("Could not write result");
+            *fake_position.lock().unwrap() += 1;
         }
 
         let number_of_matches: u64 = match_list.iter().map(|m| m.haplotype_ids.len() as u64).sum();
         let peak_time_elapsed = peak_start_time.elapsed().unwrap().as_millis();
         let global_time_elapsed = start_time.elapsed().unwrap().as_millis();
-        println!("Peak {}/{}\t{} ms ({} total)\t{}\t{}\t{} haplotypes\t{} variants\t{} matches", peak_id, number_of_peaks, peak_time_elapsed, global_time_elapsed, peak.start, peak.end, number_of_haplotypes, number_of_variants, number_of_matches);
-    }
+        println!("Peak {}/{}\t{} ms ({} total)\t{}\t{}\t{} haplotypes\t{} variants\t{} matches", number_of_peaks_processed.lock().unwrap(), number_of_peaks, peak_time_elapsed, global_time_elapsed, peak.start, peak.end, number_of_haplotypes, number_of_variants, number_of_matches);
+        *number_of_peaks_processed.lock().unwrap() += 1;
+    });
 }
 
 
