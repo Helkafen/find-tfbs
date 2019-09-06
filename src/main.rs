@@ -226,9 +226,7 @@ fn main() {
             let id_str = format!("{},{},{}-{}",source, pwm_name_dict.get(&pattern_id).expect("Logic error: No pattern name for a pattern_id"), inner_peak.start, inner_peak.end);
             let distinct_counts_str: Vec<String> = distinct_counts.iter().map(|c| c.to_string()).collect();
             let info_str = format!("COUNTS={}", distinct_counts_str.join(","));
-            txx.send(format!("{}\t{}\t{}\t.\t.\t.\t.\t{}\tGT", chr, fake_position.lock().unwrap(), id_str, info_str).to_string()).expect("Could not write result");
-            txx.send(genotypes.to_string()).expect("Could not write result");
-            txx.send("\n".to_string()).expect("Could not write result");
+            txx.send(format!("{}\t{}\t{}\t.\t.\t.\t.\t{}\tGT{}\n", chr, fake_position.lock().unwrap(), id_str, info_str, genotypes).to_string()).expect("Could not write result");
             *fake_position.lock().unwrap() += 1;
         }
 
