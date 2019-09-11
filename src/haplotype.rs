@@ -1,5 +1,4 @@
 extern crate rust_htslib;
-extern crate bio;
 
 use rust_htslib::bcf::*;
 use rust_htslib::bcf::record::*;

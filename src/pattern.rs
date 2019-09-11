@@ -43,13 +43,12 @@ pub fn parse_pwm_files(pwm_file: &str, threshold_file: &str, add_reverse_pattern
                                     pwms.push(pwm);
                                     pattern_id = pattern_id + 1;
                                     {
-                                        let reverse_weights = {
-                                            let mut x = current_weights;
-                                            x.reverse();
-                                            x
-                                        };
-
                                         if add_reverse_patterns {
+                                            let reverse_weights = {
+                                                let mut x = current_weights;
+                                                x.reverse();
+                                                x
+                                            };
                                             let pwm = PWM { weights: reverse_weights, name: format!("{}_reversed", name), pattern_id: pattern_id, min_score: t };
                                             pwms.push(pwm);
                                             pattern_id = pattern_id + 1;
@@ -94,18 +93,18 @@ pub fn parse_pwm_files(pwm_file: &str, threshold_file: &str, add_reverse_pattern
 }
 
 fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>> where P: AsRef<Path>, {
-    let file = File::open(filename).expect("Could not open file"); // format!("Could not open file {}", filename)
+    let file = File::open(filename).expect("Could not open file");
     Ok(io::BufReader::new(file).lines())
 }
 
-fn apply_weight(w: &Weight, n: &NucleotidePos) -> i32 {
+fn select_weight(w: &Weight, n: &NucleotidePos) -> i32 {
     let i = n.nuc as usize;
     let x = unsafe { w.acgtn.get_unchecked(i) };
     *x
 }
 
-fn apply_weights(pwm: &PWM, haplotype: &[NucleotidePos]) -> i32 {
-    return pwm.weights.iter().zip(haplotype.iter()).map(|(w, n)| apply_weight(w,n)).sum();
+fn apply_pwm(pwm: &PWM, haplotype: &[NucleotidePos]) -> i32 {
+    return pwm.weights.iter().zip(haplotype.iter()).map(|(weight, nucleotide)| select_weight(weight,nucleotide)).sum();
 }
 
 //fn display_vec_nuc(vec: &Vec<Nucleotide>) -> String {
@@ -116,10 +115,17 @@ pub fn matches(pwm: &PWM, haplotype: &Vec<NucleotidePos>, haplotype_ids: Rc<Vec<
     let mut res = Vec::new();
     if haplotype.len() >= pwm.weights.len() {
         for i in 0..(haplotype.len()-pwm.weights.len()+1) {
-            //println!("i:{} hap:{} pwm:{}", i, haplotype.len(), pwm.weights.len());
-            let score = apply_weights(&pwm, &haplotype[i..]);
+            let score = apply_pwm(&pwm, &haplotype[i..]);
             if score > pwm.min_score {
                 let m = Match { pos : haplotype[i].pos, pattern_id : pwm.pattern_id, haplotype_ids: haplotype_ids.clone() };
+                res.push(m);
+            }
+        }
+    }
+    return res;
+}
+
+            //println!("i:{} hap:{} pwm:{}", i, haplotype.len(), pwm.weights.len());
                 //let mut matched = Vec::new();
                 //for x in &haplotype[i..std::cmp::min(i+pwm.weights.len(), haplotype.len())] {
                 //    matched.push(x.nuc);
@@ -132,9 +138,3 @@ pub fn matches(pwm: &PWM, haplotype: &Vec<NucleotidePos>, haplotype_ids: Rc<Vec<
                 //    }
                 //    println!("");
                 //}
-                res.push(m);
-            }
-        }
-    }
-    return res;
-}
