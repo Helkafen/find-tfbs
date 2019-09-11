@@ -10,9 +10,8 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 
-fn load_diffs(reader: &mut IndexedReader) -> (HashMap<HaplotypeId, Vec<Diff>>, u32) {
+fn load_diffs(reader: &mut IndexedReader, sample_positions_in_bcf: &Vec<usize>) -> (HashMap<HaplotypeId, Vec<Diff>>, u32) {
     let mut xs : HashMap<HaplotypeId, Vec<Diff>> = HashMap::new();
-    let sample_count = reader.header().sample_count() as usize;
     let mut variant_count: u32 = 0;
     for r in reader.records() {
         match r {
@@ -27,8 +26,9 @@ fn load_diffs(reader: &mut IndexedReader) -> (HashMap<HaplotypeId, Vec<Diff>>, u
 
                 if number_of_alleles == 2 {
                     let diff = Diff { pos : position as u64, reference : reference.clone(), alternative : alternative.clone() };
-                    for sample_id in 0..sample_count {
-                        let genotype = genotypes.get(sample_id);
+                    let mut sample_id = 0;
+                    for &sample_position in sample_positions_in_bcf {
+                        let genotype = genotypes.get(sample_position);
                         assert!(number_of_alleles == genotype.len(), "Inconsistent number of alleles");
 
                         if has_alternative(&genotype, HaplotypeSide::Left) {
@@ -39,6 +39,7 @@ fn load_diffs(reader: &mut IndexedReader) -> (HashMap<HaplotypeId, Vec<Diff>>, u
                             let haplotype_id = HaplotypeId { sample_id : sample_id, side: HaplotypeSide::Right };
                             xs.entry(haplotype_id).or_insert(Vec::new()).push(diff.clone());
                         }
+                        sample_id = sample_id + 1;
                     }
                 }
                 else {
@@ -76,10 +77,10 @@ fn group_by_diffs(mut diffs: HashMap<HaplotypeId, Vec<Diff>>) -> HashMap<Vec<Dif
     return rc;
 }
 
-pub fn load_haplotypes(chromosome: &str, peak: &Range, reader: &mut IndexedReader, ref_haplotype: &Vec<NucleotidePos>) -> (u32, HashMap<Vec<NucleotidePos>, Rc<Vec<HaplotypeId>>>) {
+pub fn load_haplotypes(chromosome: &str, peak: &Range, reader: &mut IndexedReader, ref_haplotype: &Vec<NucleotidePos>, sample_positions_in_bcf: &Vec<usize>) -> (u32, HashMap<Vec<NucleotidePos>, Rc<Vec<HaplotypeId>>>) {
     let rid = reader.header().name2rid(chromosome.as_bytes()).unwrap();
     reader.fetch(rid, peak.start as u32, peak.end as u32).unwrap();
-    let (xs, variant_count) = load_diffs(reader);
+    let (xs, variant_count) = load_diffs(reader, sample_positions_in_bcf);
     let mut res = HashMap::new();
     for (diffs, haplotype_ids) in group_by_diffs(xs).drain(){
         let haplotype = patch_haplotype(peak, &diffs, ref_haplotype);

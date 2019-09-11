@@ -7,6 +7,8 @@ use rust_htslib::bcf::*;
 
 use bgzip::write::BGzWriter;
 use std::fs;
+use std::fs::File;
+use std::io::BufReader;
 use std::io::prelude::*;
 
 use std::collections::HashMap;
@@ -75,12 +77,12 @@ fn all_haplotype_ids(sample_count: usize) -> HashSet<HaplotypeId> {
     x
 }
 
-fn find_all_matches(chromosome: &str, peak: &Range, reader: &mut IndexedReader, ref_haplotype: &Vec<NucleotidePos>, pwm_list: &Vec<PWM>, mut haplotypes_with_reference_genome: HashSet<HaplotypeId>)
+fn find_all_matches(chromosome: &str, peak: &Range, reader: &mut IndexedReader, ref_haplotype: &Vec<NucleotidePos>, pwm_list: &Vec<PWM>, mut haplotypes_with_reference_genome: HashSet<HaplotypeId>, sample_positions_in_bcf:&Vec<usize>)
                     -> (Vec<Match>, u32, u32) {
     let mut match_list = Vec::new();
     let mut number_of_haplotypes = 0;
     // Find matches for people who have at least one variant inside the peak
-    let (number_of_variants, mut xs) = load_haplotypes(chromosome, &peak, reader, ref_haplotype);
+    let (number_of_variants, mut xs) = load_haplotypes(chromosome, &peak, reader, ref_haplotype, sample_positions_in_bcf);
     for (haplotype, haplotype_ids) in xs.drain() {
         for h in haplotype_ids.iter() {
             haplotypes_with_reference_genome.remove(&h);
@@ -128,6 +130,7 @@ fn main() {
                         .arg(Arg::with_name("forward_only")      .short("f").required(false).takes_value(false).value_name("FORWARD_ONLY").long("forward_only")      .help("Only examine the forward strand"))
                         .arg(Arg::with_name("threads")           .short("n").required(false).takes_value(true) .value_name("THREADS")     .long("threads")           .help("Size of the thread pool, in addition to the writer thread"))
                         .arg(Arg::with_name("min_maf")           .short("m").required(false).takes_value(true) .value_name("MIN_NAF")     .long("min_maf")           .help("Minimal number of occurences of the non-majority configurations"))
+                        .arg(Arg::with_name("samples")           .short("s").required(false).takes_value(true) .value_name("SAMPLES")     .long("samples")           .help("Samples file"))
                         .get_matches();
 
     let chromosome               = opt_matches.value_of("chromosome").unwrap();                     //1
@@ -171,11 +174,32 @@ fn main() {
     });
 
     let mut reader = IndexedReader::from_path(bcf).expect("Error while opening the bcf file");
-    let samples = get_sample_names(&mut reader);
+    let bcf_samples = get_sample_names(&mut reader);
+    let bcf_samples_length = bcf_samples.len();
+    let number_of_peaks = &merged_peaks.len();
+
+    let (samples, sample_positions_in_bcf): (Vec<String>, Vec<usize>) = {
+        match opt_matches.value_of("samples") {
+           None => (bcf_samples, (0..bcf_samples_length).into_iter().collect()),
+           Some(f) => {
+                let input = File::open(f).expect(&format!("Could not open sample file {}", f));
+                let buffered = BufReader::new(input);
+                let mut samples = Vec::new();
+                for line in buffered.lines() { if let Ok(l) = line { if l.len() > 1 { samples.push(l); } } }
+                let mut sample_indices = Vec::new();
+                let samples_set: HashSet<String> = samples.clone().into_iter().collect();
+                for i in 0..bcf_samples_length {
+                    if samples_set.contains(&bcf_samples[i]) {
+                        sample_indices.push(i);
+                    }
+                }
+                (samples, sample_indices)
+           },
+        }
+    };
     let sample_count = samples.len();
     let null_count: Vec<u32> = repeat(sample_count, 0);
-    println!("Number of samples: {}", sample_count);
-    let number_of_peaks = &merged_peaks.len();
+    println!("Reading {} samples out of {}", sample_count, bcf_samples_length);
     let all_haplotypes_with_reference_genome: HashSet<HaplotypeId> = all_haplotype_ids(sample_count);
 
     // Write header in output file
@@ -202,7 +226,7 @@ fn main() {
 
         let inner_peaks: HashMap<&String, Vec<&Range>> = select_inner_peaks(peak, &peak_map);
 
-        let (match_list, number_of_haplotypes, number_of_variants) = find_all_matches(chromosome, &peak, &mut reader, &ref_haplotype, &pwm_list, all_haplotypes_with_reference_genome.clone());
+        let (match_list, number_of_haplotypes, number_of_variants) = find_all_matches(chromosome, &peak, &mut reader, &ref_haplotype, &pwm_list, all_haplotypes_with_reference_genome.clone(), &sample_positions_in_bcf);
 
         for ((source, inner_peak, pattern_id),v) in count_matches_by_sample(&match_list, &inner_peaks, &null_count).drain() {
             let (distinct_counts, maf, freq0, freq1, freq2, genotypes) = counts_as_genotypes(v);
