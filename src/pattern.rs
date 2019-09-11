@@ -7,7 +7,7 @@ use std::rc::Rc;
 
 use super::types::*;
 
-pub fn parse_pwm_files(pwm_file: &str, threshold_file: &str, add_reverse_patterns: bool) -> Vec<PWM> {
+pub fn parse_pwm_files(pwm_file: &str, threshold_file: &str, wanted_pwms: Vec<String>, add_reverse_patterns: bool) -> Vec<PWM> {
     fn parse_weight(s: &String) -> i32 {
         let x: f32 = s.parse().unwrap();
         (x * 1000.0).round() as i32
@@ -39,27 +39,21 @@ pub fn parse_pwm_files(pwm_file: &str, threshold_file: &str, add_reverse_pattern
                         Some(name) => {
                             match thresholds.get(&name) {
                                 Some(&t) => {
-                                    let pwm = PWM { weights: current_weights.clone(), name: name.clone(), pattern_id: pattern_id, min_score: t };
+                                    let pwm = PWM { weights: current_weights.clone(), name: name.clone(), pattern_id: pattern_id, min_score: t, direction: PWMDirection::P };
                                     pwms.push(pwm);
                                     pattern_id = pattern_id + 1;
                                     {
                                         if add_reverse_patterns {
-                                            let reverse_weights = {
-                                                let mut x = current_weights;
-                                                x.reverse();
-                                                x
-                                            };
-                                            let pwm = PWM { weights: reverse_weights, name: format!("{}_reversed", name), pattern_id: pattern_id, min_score: t };
+                                            let reverse_weights = { let mut x = current_weights; x.reverse(); x };
+                                            let pwm = PWM { weights: reverse_weights, name: name, pattern_id: pattern_id, min_score: t, direction: PWMDirection::N };
                                             pwms.push(pwm);
                                             pattern_id = pattern_id + 1;
                                         }
                                     }
                                     current_weights = Vec::new();
-
                                 },
-                                None => println!("Couldn't find a PWM threshold"),
+                                None => println!("Couldn't find a PWM threshold for {}", name),
                             }
-
                         }
                     }
                     current_name = Some(l[1..].to_string());
@@ -76,20 +70,7 @@ pub fn parse_pwm_files(pwm_file: &str, threshold_file: &str, add_reverse_pattern
             }
         }
     }
-    match current_name {
-        Some(name) => {
-            match thresholds.get(&name) {
-                Some(&t) => {
-                    let pwm = PWM { weights: current_weights.into_iter().collect(), name: name, pattern_id: pattern_id, min_score: t };
-                    pwms.push(pwm);
-                }
-                None => println!("Couldn't find a PWM threshold"),
-            }
-        }
-        None => (),
-    }
-
-    pwms
+    pwms.into_iter().filter(|p| wanted_pwms.contains(&p.name)).collect()
 }
 
 fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>> where P: AsRef<Path>, {

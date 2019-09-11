@@ -49,7 +49,21 @@ pub struct HaplotypeId {
 }
 
 #[derive(Clone)]
-pub struct PWM { pub weights: Vec<Weight>, pub name: String, pub pattern_id: u16, pub min_score: i32 }
+pub enum PWMDirection {
+    P, N
+}
+
+impl fmt::Display for PWMDirection {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            PWMDirection::P => write!(f, "+"),
+            PWMDirection::N => write!(f, "-"),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct PWM { pub weights: Vec<Weight>, pub name: String, pub pattern_id: u16, pub min_score: i32, pub direction: PWMDirection }
 
 #[derive(Clone)]
 pub struct Weight {

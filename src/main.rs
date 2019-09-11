@@ -152,11 +152,11 @@ fn main() {
         if n<1 { panic!("Wrong number of threads"); } else { rayon::ThreadPoolBuilder::new().num_threads(n).build_global().expect("Couldn't build the thread pool"); }
     }
 
-    let pwm_list: Vec<PWM> = parse_pwm_files(pwm_file, pwm_threshold_file, !forward_only).iter().filter(|p| wanted_pwms.contains(&p.name)).cloned().collect();
+    let pwm_list: Vec<PWM> = parse_pwm_files(pwm_file, pwm_threshold_file, wanted_pwms, !forward_only);
     let mut pwm_name_dict = HashMap::new();
     for pwm in &pwm_list {
-        println!("PWM {} {}", pwm.name, pwm.min_score);
-        pwm_name_dict.insert(pwm.pattern_id, pwm.name.clone());
+        println!("PWM {} {} {}", pwm.name, pwm.min_score, pwm.direction);
+        pwm_name_dict.insert(pwm.pattern_id, (pwm.name.clone(), pwm.direction.clone()));
     }
 
     let (merged_peaks, peak_map) = load_peak_files(&bed_files, chromosome);
@@ -231,7 +231,8 @@ fn main() {
         for ((source, inner_peak, pattern_id),v) in count_matches_by_sample(&match_list, &inner_peaks, &null_count).drain() {
             let (distinct_counts, maf, freq0, freq1, freq2, genotypes) = counts_as_genotypes(v);
             if maf >= min_maf && distinct_counts.len() > 1 {
-                let id_str = format!("{},{},{}-{}",source, pwm_name_dict.get(&pattern_id).expect("Logic error: No pattern name for a pattern_id"), inner_peak.start, inner_peak.end);
+                let (pwm_name, pwm_direction) = pwm_name_dict.get(&pattern_id).expect("Logic error: No pattern name for a pattern_id");
+                let id_str = format!("{},{},{},{}-{}",source, pwm_name, pwm_direction, inner_peak.start, inner_peak.end);
                 let distinct_counts_str: Vec<String> = distinct_counts.iter().map(|c| c.to_string()).collect();
                 let info_str = format!("COUNTS={};freqs={}/{}/{}", distinct_counts_str.join(","), freq0, freq1, freq2);
                 txx.send(format!("{}\t{}\t{}\t.\t.\t.\t.\t{}\tGT{}\n", chr, fake_position.lock().unwrap(), id_str, info_str, genotypes).to_string()).expect("Could not write result");
@@ -338,7 +339,7 @@ mod tests {
     fn test_matches() {
         let c = Weight::new(0, 1000, 0, 0);
         let g = Weight::new(0, 0, 1000, 0);
-        let pwm = PWM {weights: vec![c,g], name: "pwm".to_string(), pattern_id: 5, min_score: 1500};
+        let pwm = PWM {weights: vec![c,g], name: "pwm".to_string(), pattern_id: 5, min_score: 1500, direction: PWMDirection::P};
         let haplotype = vec![
             NucleotidePos { nuc: Nucleotide::A, pos: 10 },
             NucleotidePos { nuc: Nucleotide::C, pos: 11 },
@@ -437,7 +438,7 @@ mod tests {
 
     #[test]
     fn test_match_gataa() {
-        let pwm = PWM { weights: vec![Weight::new(0,0,100,0), Weight::new(100,0,0,0), Weight::new(0,0,0,100), Weight::new(100,0,0,0), Weight::new(100,0,0,0), ], name: "Example".to_string(), pattern_id: 123, min_score: 499 };
+        let pwm = PWM { weights: vec![Weight::new(0,0,100,0), Weight::new(100,0,0,0), Weight::new(0,0,0,100), Weight::new(100,0,0,0), Weight::new(100,0,0,0), ], name: "Example".to_string(), pattern_id: 123, min_score: 499, direction: PWMDirection::P };
         let haplotype_with_padding = vec![nucp('N',0), nucp('G',1), nucp('A',2), nucp('T',3), nucp('A',4), nucp('A',5), nucp('N',6)];
         let haplotype_without_padding = vec![nucp('G',1), nucp('A',2), nucp('T',3), nucp('A',4), nucp('A',5)];
         let haplotype_ids = Rc::new(vec![HaplotypeId { sample_id: 456, side: HaplotypeSide::Right }]);
@@ -446,7 +447,7 @@ mod tests {
         let ms2 = matches(&pwm, &haplotype_without_padding, haplotype_ids.clone());
         assert_eq!(ms2.len(), 1);
 
-        let pwm2 = PWM { weights: vec![Weight::new(0,0,100,0), Weight::new(100,0,0,0), Weight::new(0,0,0,100), Weight::new(100,0,0,0), Weight::new(100,0,0,0), ], name: "Example".to_string(), pattern_id: 123, min_score: 500 };
+        let pwm2 = PWM { weights: vec![Weight::new(0,0,100,0), Weight::new(100,0,0,0), Weight::new(0,0,0,100), Weight::new(100,0,0,0), Weight::new(100,0,0,0), ], name: "Example".to_string(), pattern_id: 123, min_score: 500, direction: PWMDirection::P };
         let ms3 = matches(&pwm2, &haplotype_with_padding, haplotype_ids.clone());
         assert_eq!(ms3.len(), 0);
         let ms4 = matches(&pwm2, &haplotype_without_padding, haplotype_ids.clone());
