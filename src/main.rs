@@ -1,6 +1,8 @@
 extern crate bgzip;
 extern crate clap;
 extern crate rayon;
+extern crate which;
+extern crate subprocess;
 
 use std::rc::Rc;
 use rust_htslib::bcf::*;
@@ -24,6 +26,8 @@ use std::sync::{Arc,Mutex};
 use rayon::prelude::*;
 
 use clap::{Arg, App};
+
+use subprocess::Exec;
 
 mod types;
 mod range;
@@ -127,10 +131,11 @@ fn main() {
                         .arg(Arg::with_name("pwm_names")         .short("n").required(true) .takes_value(true) .value_name("PWM_NAMES")   .long("pwm_names")         .help("List of PWM names to scan. Ex: CTCF_HUMAN.H11MO.0.A,IRF1_HUMAN.H11MO.0.A"))
                         .arg(Arg::with_name("pwm_file")          .short("p").required(true) .takes_value(true) .value_name("PWM")         .long("pwm_file")          .help("PWM file. Ex: HOCOMOCOv11_full_pwms_HUMAN_mono.txt"))
                         .arg(Arg::with_name("pwm_threshold_file").short("t").required(true) .takes_value(true) .value_name("THRESHOLD")   .long("pwm_threshold_file").help("PWM threshold file. Ex: HOCOMOCOv11_full_standard_thresholds_HUMAN_mono.txt"))
-                        .arg(Arg::with_name("forward_only")      .short("f").required(false).takes_value(false).value_name("FORWARD_ONLY").long("forward_only")      .help("Only examine the forward strand"))
+                        .arg(Arg::with_name("forward_only")      .short("f").required(false).takes_value(false)                           .long("forward_only")      .help("Only examine the forward strand"))
                         .arg(Arg::with_name("threads")           .short("n").required(false).takes_value(true) .value_name("THREADS")     .long("threads")           .help("Size of the thread pool, in addition to the writer thread"))
                         .arg(Arg::with_name("min_maf")           .short("m").required(false).takes_value(true) .value_name("MIN_NAF")     .long("min_maf")           .help("Minimal number of occurences of the non-majority configurations"))
                         .arg(Arg::with_name("samples")           .short("s").required(false).takes_value(true) .value_name("SAMPLES")     .long("samples")           .help("Samples file"))
+                        .arg(Arg::with_name("tabix")             .short("z").required(false).takes_value(false)                           .long("tabix")             .help("Compress VCF with bgzip and tabix it"))
                         .get_matches();
 
     let chromosome               = opt_matches.value_of("chromosome").unwrap();                     //1
@@ -142,6 +147,7 @@ fn main() {
     let wanted_pwms: Vec<String> = opt_matches.value_of("pwm_names").unwrap().split(',').map(|s| s.to_string()).collect(); //"JUNB_HUMAN.H11MO.0.A,FOSL1_HUMAN.H11MO.0.A,FOSL2_HUMAN.H11MO.0.A,JDP2_HUMAN.H11MO.0.D,GATA1_HUMAN.H11MO.0.A,GATA2_HUMAN.H11MO.0.A,GATA3_HUMAN.H11MO.0.A,GATA4_HUMAN.H11MO.0.A,GATA5_HUMAN.H11MO.0.D,GATA6_HUMAN.H11MO.0.A,JUN_HUMAN.H11MO.0.A,JUND_HUMAN.H11MO.0.A,BATF_HUMAN.H11MO.0.A,ATF3_HUMAN.H11MO.0.A,BACH1_HUMAN.H11MO.0.A,BACH2_HUMAN.H11MO.0.A,NFE2_HUMAN.H11MO.0.A,CEBPA_HUMAN.H11MO.0.A,CEBPB_HUMAN.H11MO.0.A,CEBPD_HUMAN.H11MO.0.C,CEBPE_HUMAN.H11MO.0.A,CEBPG_HUMAN.H11MO.0.B,SPIB_HUMAN.H11MO.0.A,IRF8_HUMAN.H11MO.0.B,SPI1_HUMAN.H11MO.0.A,MESP1_HUMAN.H11MO.0.D,ID4_HUMAN.H11MO.0.D,HTF4_HUMAN.H11MO.0.A,ITF2_HUMAN.H11MO.0.C,STAT1_HUMAN.H11MO.0.A,STAT2_HUMAN.H11MO.0.A,SPIC_HUMAN.H11MO.0.D,CTCF_HUMAN.H11MO.0.A,IRF1_HUMAN.H11MO.0.A,DBP_HUMAN.H11MO.0.B,MAFK_HUMAN.H11MO.1.A,ATF4_HUMAN.H11MO.0.A,ASCL1_HUMAN.H11MO.0.A,ASCL2_HUMAN.H11MO.0.D,TFE2_HUMAN.H11MO.0.A,MYOD1_HUMAN.H11MO.0.A,EVI1_HUMAN.H11MO.0.B,IRF3_HUMAN.H11MO.0.B,ZEB1_HUMAN.H11MO.0.A,IRF9_HUMAN.H11MO.0.C,HEN1_HUMAN.H11MO.0.C,LYL1_HUMAN.H11MO.0.A".split(',').into_iter().map(|a| a.to_string()).collect();
     let output_file              = opt_matches.value_of("output").unwrap().to_string();             //"test2.gz";
     let forward_only: bool       = opt_matches.is_present("forward_only");
+    let run_tabix: bool          = opt_matches.is_present("tabix");
     let min_maf: u32             = match opt_matches.value_of("min_maf") {
         Some(s) => s.to_string().parse().expect("Cannot parse MAF"),
         None => 0,
@@ -150,6 +156,11 @@ fn main() {
     if let Some(s) = opt_matches.value_of("threads") {
         let n = s.to_string().parse().expect("Cannot parse thread number");
         if n<1 { panic!("Wrong number of threads"); } else { rayon::ThreadPoolBuilder::new().num_threads(n).build_global().expect("Couldn't build the thread pool"); }
+    }
+
+    if run_tabix{
+        which::which("bgzip").ok().expect("bgzip cannot in found in PATH");
+        which::which("tabix").ok().expect("tabix cannot in found in PATH");
     }
 
     let pwm_list: Vec<PWM> = parse_pwm_files(pwm_file, pwm_threshold_file, wanted_pwms, !forward_only);
@@ -164,13 +175,21 @@ fn main() {
     let (tx, rx): (Sender<String>, Receiver<String>) = mpsc::channel();
 
     let _writer_thread = thread::spawn(move || {
-        let mut writer = BGzWriter::new(fs::File::create(output_file).expect("Could not create output file"));
+        let mut writer = BGzWriter::new(fs::File::create(output_file.clone() + ".part").expect("Could not create output file"));
         loop {
             match rx.recv() {
                 Ok(s) => { writer.write(s.as_bytes()).expect("Could not write bytes to output file"); }
                 Err(_) => { break; }
             }
         };
+        if run_tabix{
+            println!("Tabixing {}", output_file.clone());
+            let bgzip_exit_status = Exec::shell(&format!("zcat {}.part | bgzip > {}; tabix -f -p vcf {}; rm {}.part", output_file.clone(), output_file.clone(), output_file.clone(), output_file.clone())).join().unwrap();
+            println!("HERE2 {:#?}", bgzip_exit_status); // TODO: Mysteriously, we never reach this point
+        }
+        else {
+            fs::rename(output_file.clone() + ".part", output_file.clone()).expect(&format!("Count not rename {} into {}", output_file.clone(), output_file.clone() + ".part"));
+        }
     });
 
     let mut reader = IndexedReader::from_path(bcf).expect("Error while opening the bcf file");
@@ -243,8 +262,8 @@ fn main() {
         let number_of_matches: u64 = match_list.iter().map(|m| m.haplotype_ids.len() as u64).sum();
         let peak_time_elapsed = peak_start_time.elapsed().unwrap().as_millis();
         let global_time_elapsed = start_time.elapsed().unwrap().as_millis();
-        println!("Peak {}/{}\t{} ms ({} total)\t{}\t{}\t{} haplotypes\t{} variants\t{} matches", number_of_peaks_processed.lock().unwrap(), number_of_peaks, peak_time_elapsed, global_time_elapsed, peak.start, peak.end, number_of_haplotypes, number_of_variants, number_of_matches);
         *number_of_peaks_processed.lock().unwrap() += 1;
+        println!("Peak {}/{}\t{} ms ({} total)\t{}\t{}\t{} haplotypes\t{} variants\t{} matches", number_of_peaks_processed.lock().unwrap(), number_of_peaks, peak_time_elapsed, global_time_elapsed, peak.start, peak.end, number_of_haplotypes, number_of_variants, number_of_matches);
     });
 }
 
