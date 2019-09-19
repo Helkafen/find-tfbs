@@ -123,19 +123,20 @@ fn main() {
                         .version("1.0")
                         .author("Sébastian Méric de Bellefon <arnaudpourseb@gmail.com>")
                         .about("Find patterns in a VCF file")
-                        .arg(Arg::with_name("chromosome")        .short("c").required(true) .takes_value(true) .value_name("CHROM")       .long("chromosome")        .help("Chromosome to scan. Ex: 'chr1'"))
-                        .arg(Arg::with_name("bcf")               .short("i").required(true) .takes_value(true) .value_name("IN")          .long("input")             .help("BCF input file to use"))
-                        .arg(Arg::with_name("output")            .short("o").required(true) .takes_value(true) .value_name("OUT")         .long("output")            .help("Output VCF file"))
-                        .arg(Arg::with_name("ref")               .short("r").required(true) .takes_value(true) .value_name("REF")         .long("reference")         .help("Reference genome. Ex: hg38.fa"))
-                        .arg(Arg::with_name("bed_files")         .short("b").required(true) .takes_value(true) .value_name("BED")         .long("bed")               .help("Bed files containing the regions to scan"))
-                        .arg(Arg::with_name("pwm_names")         .short("n").required(true) .takes_value(true) .value_name("PWM_NAMES")   .long("pwm_names")         .help("List of PWM names to scan. Ex: CTCF_HUMAN.H11MO.0.A,IRF1_HUMAN.H11MO.0.A"))
-                        .arg(Arg::with_name("pwm_file")          .short("p").required(true) .takes_value(true) .value_name("PWM")         .long("pwm_file")          .help("PWM file. Ex: HOCOMOCOv11_full_pwms_HUMAN_mono.txt"))
-                        .arg(Arg::with_name("pwm_threshold_file").short("t").required(true) .takes_value(true) .value_name("THRESHOLD")   .long("pwm_threshold_file").help("PWM threshold file. Ex: HOCOMOCOv11_full_standard_thresholds_HUMAN_mono.txt"))
-                        .arg(Arg::with_name("forward_only")      .short("f").required(false).takes_value(false)                           .long("forward_only")      .help("Only examine the forward strand"))
-                        .arg(Arg::with_name("threads")           .short("n").required(false).takes_value(true) .value_name("THREADS")     .long("threads")           .help("Size of the thread pool, in addition to the writer thread"))
-                        .arg(Arg::with_name("min_maf")           .short("m").required(false).takes_value(true) .value_name("MIN_NAF")     .long("min_maf")           .help("Minimal number of occurences of the non-majority configurations"))
-                        .arg(Arg::with_name("samples")           .short("s").required(false).takes_value(true) .value_name("SAMPLES")     .long("samples")           .help("Samples file"))
-                        .arg(Arg::with_name("tabix")             .short("z").required(false).takes_value(false)                           .long("tabix")             .help("Compress VCF with bgzip and tabix it"))
+                        .arg(Arg::with_name("chromosome")        .short("c").required(true) .takes_value(true) .value_name("CHROM")              .long("chromosome")             .help("Chromosome to scan. Ex: 'chr1'"))
+                        .arg(Arg::with_name("bcf")               .short("i").required(true) .takes_value(true) .value_name("IN")                 .long("input")                  .help("BCF input file to use"))
+                        .arg(Arg::with_name("output")            .short("o").required(true) .takes_value(true) .value_name("OUT")                .long("output")                 .help("Output VCF file"))
+                        .arg(Arg::with_name("ref")               .short("r").required(true) .takes_value(true) .value_name("REF")                .long("reference")              .help("Reference genome. Ex: hg38.fa"))
+                        .arg(Arg::with_name("bed_files")         .short("b").required(true) .takes_value(true) .value_name("BED")                .long("bed")                    .help("Bed files containing the regions to scan"))
+                        .arg(Arg::with_name("pwm_names")         .short("n").required(true) .takes_value(true) .value_name("PWM_NAMES")          .long("pwm_names")              .help("List of PWM names to scan. Ex: CTCF_HUMAN.H11MO.0.A,IRF1_HUMAN.H11MO.0.A"))
+                        .arg(Arg::with_name("pwm_file")          .short("p").required(true) .takes_value(true) .value_name("PWM")                .long("pwm_file")               .help("PWM file. Ex: HOCOMOCOv11_full_pwms_HUMAN_mono.txt"))
+                        .arg(Arg::with_name("pwm_threshold_dir")            .required(true) .takes_value(true) .value_name("THRESHOLD_DIRECTORY").long("pwm_threshold_directory").help("PWM thresholds directory. Extracted from HOCOMOCO's thresholds_HUMAN_mono.tar.gz"))
+                        .arg(Arg::with_name("pwm_threshold")     .short("t").required(true) .takes_value(true) .value_name("THRESHOLD")          .long("pwm_threshold")          .help("PWM threshold value. E.g 0.001"))
+                        .arg(Arg::with_name("forward_only")      .short("f").required(false).takes_value(false)                                  .long("forward_only")           .help("Only examine the forward strand"))
+                        .arg(Arg::with_name("threads")           .short("n").required(false).takes_value(true) .value_name("THREADS")            .long("threads")                .help("Size of the thread pool, in addition to the writer thread"))
+                        .arg(Arg::with_name("min_maf")           .short("m").required(false).takes_value(true) .value_name("MIN_NAF")            .long("min_maf")                .help("Minimal number of occurences of the non-majority configurations"))
+                        .arg(Arg::with_name("samples")           .short("s").required(false).takes_value(true) .value_name("SAMPLES")            .long("samples")                .help("Samples file"))
+                        .arg(Arg::with_name("tabix")             .short("z").required(false).takes_value(false)                                  .long("tabix")                  .help("Compress VCF with bgzip and tabix it"))
                         .get_matches();
 
     let chromosome               = opt_matches.value_of("chromosome").unwrap();                     //1
@@ -143,7 +144,11 @@ fn main() {
     let bed_files: Vec<&str>     = opt_matches.value_of("bed_files").unwrap().split(',').collect(); //bed/Bcell-13.bed,bed/CD4-9.bed,bed/CD8-10.bed,bed/CLP-14.bed,bed/CMP-4.bed,bed/Erythro-15.bed,bed/GMP-5.bed,bed/HSC-1.bed,bed/LMPP-3.bed,bed/MCP.bed,bed/mDC.bed,bed/MEGA1.bed,bed/MEGA2.bed,bed/MEP-6.bed,bed/Mono-7.bed,bed/MPP-2.bed,bed/Nkcell-11.bed,bed/pDC.bed
     let reference_genome_file    = opt_matches.value_of("ref").unwrap();                            //"/home/seb/masters/hg38.fa";
     let pwm_file                 = opt_matches.value_of("pwm_file").unwrap();                       //"/home/seb/masters/regu/dnamotifs/HOCOMOCOv11_full_pwms_HUMAN_mono.txt";
-    let pwm_threshold_file       = opt_matches.value_of("pwm_threshold_file").unwrap();             //"/home/seb/masters/regu/dnamotifs/hocomoco_thresholds.tab";
+    let pwm_threshold_directory  = opt_matches.value_of("pwm_threshold_directory").unwrap();        //"thresholds";
+    let pwm_threshold: f32       = match opt_matches.value_of("pwm_threshold") {
+        Some(s) => s.to_string().parse().expect("Cannot parse MAF"),
+        None => panic!("No PWM threshold value"),
+    };
     let wanted_pwms: Vec<String> = opt_matches.value_of("pwm_names").unwrap().split(',').map(|s| s.to_string()).collect(); //"JUNB_HUMAN.H11MO.0.A,FOSL1_HUMAN.H11MO.0.A,FOSL2_HUMAN.H11MO.0.A,JDP2_HUMAN.H11MO.0.D,GATA1_HUMAN.H11MO.0.A,GATA2_HUMAN.H11MO.0.A,GATA3_HUMAN.H11MO.0.A,GATA4_HUMAN.H11MO.0.A,GATA5_HUMAN.H11MO.0.D,GATA6_HUMAN.H11MO.0.A,JUN_HUMAN.H11MO.0.A,JUND_HUMAN.H11MO.0.A,BATF_HUMAN.H11MO.0.A,ATF3_HUMAN.H11MO.0.A,BACH1_HUMAN.H11MO.0.A,BACH2_HUMAN.H11MO.0.A,NFE2_HUMAN.H11MO.0.A,CEBPA_HUMAN.H11MO.0.A,CEBPB_HUMAN.H11MO.0.A,CEBPD_HUMAN.H11MO.0.C,CEBPE_HUMAN.H11MO.0.A,CEBPG_HUMAN.H11MO.0.B,SPIB_HUMAN.H11MO.0.A,IRF8_HUMAN.H11MO.0.B,SPI1_HUMAN.H11MO.0.A,MESP1_HUMAN.H11MO.0.D,ID4_HUMAN.H11MO.0.D,HTF4_HUMAN.H11MO.0.A,ITF2_HUMAN.H11MO.0.C,STAT1_HUMAN.H11MO.0.A,STAT2_HUMAN.H11MO.0.A,SPIC_HUMAN.H11MO.0.D,CTCF_HUMAN.H11MO.0.A,IRF1_HUMAN.H11MO.0.A,DBP_HUMAN.H11MO.0.B,MAFK_HUMAN.H11MO.1.A,ATF4_HUMAN.H11MO.0.A,ASCL1_HUMAN.H11MO.0.A,ASCL2_HUMAN.H11MO.0.D,TFE2_HUMAN.H11MO.0.A,MYOD1_HUMAN.H11MO.0.A,EVI1_HUMAN.H11MO.0.B,IRF3_HUMAN.H11MO.0.B,ZEB1_HUMAN.H11MO.0.A,IRF9_HUMAN.H11MO.0.C,HEN1_HUMAN.H11MO.0.C,LYL1_HUMAN.H11MO.0.A".split(',').into_iter().map(|a| a.to_string()).collect();
     let output_file              = opt_matches.value_of("output").unwrap().to_string();             //"test2.gz";
     let forward_only: bool       = opt_matches.is_present("forward_only");
@@ -163,7 +168,7 @@ fn main() {
         which::which("tabix").ok().expect("tabix cannot in found in PATH");
     }
 
-    let pwm_list: Vec<PWM> = parse_pwm_files(pwm_file, pwm_threshold_file, wanted_pwms, !forward_only);
+    let pwm_list: Vec<PWM> = parse_pwm_files(pwm_file, pwm_threshold_directory, pwm_threshold, wanted_pwms, !forward_only);
     let mut pwm_name_dict = HashMap::new();
     for pwm in &pwm_list {
         println!("PWM {} {} {}", pwm.name, pwm.min_score, pwm.direction);
@@ -471,6 +476,31 @@ mod tests {
         assert_eq!(ms3.len(), 0);
         let ms4 = matches(&pwm2, &haplotype_without_padding, haplotype_ids.clone());
         assert_eq!(ms4.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_pwm_files() {
+        let pwms = parse_pwm_files("HOCOMOCOv11_full_pwms_HUMAN_mono.txt", "thresholds", 0.001, vec!["GATA1_HUMAN.H11MO.1.A".to_string(), "GATA2_HUMAN.H11MO.1.A".to_string()], true);
+        assert_eq!(pwms.len(), 4);
+        assert_eq!(pwms[0].name, "GATA1_HUMAN.H11MO.1.A");
+        assert_eq!(pwms[1].name, "GATA1_HUMAN.H11MO.1.A");
+        assert_eq!(pwms[2].name, "GATA2_HUMAN.H11MO.1.A");
+        assert_eq!(pwms[3].name, "GATA2_HUMAN.H11MO.1.A");
+
+        assert_eq!(pwms[0].direction, PWMDirection::P);
+        assert_eq!(pwms[1].direction, PWMDirection::N);
+        assert_eq!(pwms[2].direction, PWMDirection::P);
+        assert_eq!(pwms[3].direction, PWMDirection::N);
+
+        assert_eq!(pwms[0].pattern_id, 0);
+        assert_eq!(pwms[1].pattern_id, 1);
+        assert_eq!(pwms[2].pattern_id, 2);
+        assert_eq!(pwms[3].pattern_id, 3);
+
+        assert_eq!(pwms[0].min_score, 4683);
+        assert_eq!(pwms[1].min_score, 4683);
+        assert_eq!(pwms[2].min_score, 5314);
+        assert_eq!(pwms[3].min_score, 5314);
     }
 
     fn nucs(s: &str) -> Vec<Nucleotide> {

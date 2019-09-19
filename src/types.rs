@@ -48,7 +48,7 @@ pub struct HaplotypeId {
     pub side: HaplotypeSide
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum PWMDirection {
     P, N
 }

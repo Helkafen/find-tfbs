@@ -7,7 +7,7 @@ use std::rc::Rc;
 
 use super::types::*;
 
-pub fn parse_pwm_files(pwm_file: &str, threshold_file: &str, wanted_pwms: Vec<String>, add_reverse_patterns: bool) -> Vec<PWM> {
+pub fn parse_pwm_files(pwm_file: &str, threshold_dir: &str, pwm_threshold: f32, wanted_pwms: Vec<String>, add_reverse_patterns: bool) -> Vec<PWM> {
     fn parse_weight(s: &String) -> i32 {
         let x: f32 = s.parse().unwrap();
         (x * 1000.0).round() as i32
@@ -15,12 +15,19 @@ pub fn parse_pwm_files(pwm_file: &str, threshold_file: &str, wanted_pwms: Vec<St
 
     let mut thresholds = HashMap::new();
 
-    if let Ok(lines) = read_lines(threshold_file) {
-        for line in lines {
-            if let Ok(l) = line {
-                let x: Vec<String> = l.split_whitespace().into_iter().map(|a| a.to_string()).collect();
-                if x.len() == 2 {
-                    thresholds.insert(x[0].clone(), parse_weight(&x[1]));
+    for p in &wanted_pwms {
+        let threshold_file = format!("{}/{}.thr", threshold_dir.trim_end_matches("/"), p);
+        if let Ok(lines) = read_lines(threshold_file.clone()) {
+            for line in lines {
+                if let Ok(l) = line {
+                    let x: Vec<String> = l.split_whitespace().into_iter().map(|a| a.to_string()).collect();
+                    if x.len() == 2 {
+                        let weight = parse_weight(&x[0]);
+                        let pvalue: f32 = x[1].parse().expect(&format!("Can't parse pvalue in file {}", &threshold_file));
+                        if pvalue > pwm_threshold {
+                            thresholds.insert(p.clone(), weight);
+                        }
+                    }
                 }
             }
         }
