@@ -15,6 +15,13 @@ pub fn parse_pwm_files(pwm_file: &str, threshold_dir: &str, pwm_threshold: f32, 
 
     let mut thresholds = HashMap::new();
 
+    // See https://academic.oup.com/nar/article/46/D1/D252/4616875 and https://oup.silverchair-cdn.com/oup/backfile/Content_public/Journal/nar/46/D1/10.1093_nar_gkx1106/2/gkx1106_supp.pdf for the definition of the PWMs
+    // Careful: JDP2,GATA5,MESP1,ID4,ASCL2,SPIC have quality "D", which is too low to make de novo predictions
+    // The pvalues are derived directly from the PWM matrix itself, following https://almob.biomedcentral.com/articles/10.1186/1748-7188-2-15
+    // It is basically the proportion of haplotypes of the same length that match the PWM
+    // At 0.0005, the median sensitivity to positive controls is 0.75
+    // Maybe consider diPWMs, which seem to be a bit more specific: https://pdfs.semanticscholar.org/57e5/4745230282ff9692685dad6735bfe0d44942.pdf
+    // Comparison of the ROC of several tools including ChipMunk: https://www.researchgate.net/publication/51632780_Tree-Based_Position_Weight_Matrix_Approach_to_Model_Transcription_Factor_Binding_Site_Profiles/figures?lo=1
     for p in &wanted_pwms {
         let threshold_file = format!("{}/{}.thr", threshold_dir.trim_end_matches("/"), p);
         if let Ok(lines) = read_lines(threshold_file.clone()) {
