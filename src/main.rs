@@ -10,7 +10,7 @@ use rust_htslib::bcf::*;
 use bgzip::write::BGzWriter;
 use std::fs;
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{BufReader,BufWriter};
 use std::io::prelude::*;
 
 use std::collections::HashMap;
@@ -180,7 +180,7 @@ fn main() {
     let (tx, rx): (Sender<String>, Receiver<String>) = mpsc::channel();
 
     let _writer_thread = thread::spawn(move || {
-        let mut writer = BGzWriter::new(fs::File::create(output_file.clone() + ".part").expect("Could not create output file"));
+        let mut writer = BGzWriter::new(BufWriter::with_capacity(4096*1000,fs::File::create(output_file.clone() + ".part").expect("Could not create output file")));
         loop {
             match rx.recv() {
                 Ok(s) => { writer.write(s.as_bytes()).expect("Could not write bytes to output file"); }
