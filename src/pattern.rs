@@ -87,8 +87,8 @@ pub fn parse_pwm_files(pwm_file: &str, threshold_dir: &str, pwm_threshold: f32, 
     pwms.into_iter().filter(|p| wanted_pwms.contains(&p.name)).collect()
 }
 
-fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>> where P: AsRef<Path>, {
-    let file = File::open(filename).expect("Could not open file");
+fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>> where P: AsRef<Path>, P: std::fmt::Display, P: std::clone::Clone {
+    let file = File::open(filename.clone()).expect(&format!("Could not open file {}", filename));
     Ok(io::BufReader::new(file).lines())
 }
 

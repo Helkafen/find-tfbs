@@ -132,7 +132,7 @@ fn main() {
                         .arg(Arg::with_name("pwm_file")          .short("p").required(true) .takes_value(true) .value_name("PWM")                .long("pwm_file")               .help("PWM file. Ex: HOCOMOCOv11_full_pwms_HUMAN_mono.txt"))
                         .arg(Arg::with_name("pwm_threshold_dir")            .required(true) .takes_value(true) .value_name("THRESHOLD_DIRECTORY").long("pwm_threshold_directory").help("PWM thresholds directory. Extracted from HOCOMOCO's thresholds_HUMAN_mono.tar.gz"))
                         .arg(Arg::with_name("pwm_threshold")     .short("t").required(true) .takes_value(true) .value_name("THRESHOLD")          .long("pwm_threshold")          .help("PWM threshold value. E.g 0.001"))
-                        .arg(Arg::with_name("forward_only")      .short("f").required(false).takes_value(false)                                  .long("forward_only")           .help("Only examine the forward strand"))
+                        .arg(Arg::with_name("forward_only")      .short("f").required(false).takes_value(false)                                  .long("forward_only")           .help("Only scan forward"))
                         .arg(Arg::with_name("threads")           .short("n").required(false).takes_value(true) .value_name("THREADS")            .long("threads")                .help("Size of the thread pool, in addition to the writer thread"))
                         .arg(Arg::with_name("min_maf")           .short("m").required(false).takes_value(true) .value_name("MIN_NAF")            .long("min_maf")                .help("Minimal number of occurences of the non-majority configurations"))
                         .arg(Arg::with_name("samples")           .short("s").required(false).takes_value(true) .value_name("SAMPLES")            .long("samples")                .help("Samples file"))
@@ -144,7 +144,7 @@ fn main() {
     let bed_files: Vec<&str>     = opt_matches.value_of("bed_files").unwrap().split(',').collect(); //bed/Bcell-13.bed,bed/CD4-9.bed,bed/CD8-10.bed,bed/CLP-14.bed,bed/CMP-4.bed,bed/Erythro-15.bed,bed/GMP-5.bed,bed/HSC-1.bed,bed/LMPP-3.bed,bed/MCP.bed,bed/mDC.bed,bed/MEGA1.bed,bed/MEGA2.bed,bed/MEP-6.bed,bed/Mono-7.bed,bed/MPP-2.bed,bed/Nkcell-11.bed,bed/pDC.bed
     let reference_genome_file    = opt_matches.value_of("ref").unwrap();                            //"/home/seb/masters/hg38.fa";
     let pwm_file                 = opt_matches.value_of("pwm_file").unwrap();                       //"/home/seb/masters/regu/dnamotifs/HOCOMOCOv11_full_pwms_HUMAN_mono.txt";
-    let pwm_threshold_directory  = opt_matches.value_of("pwm_threshold_directory").unwrap();        //"thresholds";
+    let pwm_threshold_directory  = opt_matches.value_of("pwm_threshold_dir").unwrap();        //"thresholds";
     let pwm_threshold: f32       = match opt_matches.value_of("pwm_threshold") {
         Some(s) => s.to_string().parse().expect("Cannot parse MAF"),
         None => panic!("No PWM threshold value"),
@@ -190,7 +190,7 @@ fn main() {
         if run_tabix{
             println!("Tabixing {}", output_file.clone());
             let bgzip_exit_status = Exec::shell(&format!("zcat {}.part | bgzip > {}; tabix -f -p vcf {}; rm {}.part", output_file.clone(), output_file.clone(), output_file.clone(), output_file.clone())).join().unwrap();
-            println!("HERE2 {:#?}", bgzip_exit_status); // TODO: Mysteriously, we never reach this point
+            println!("HERE2 {:#?}", bgzip_exit_status); // TODO: Mysteriously, we never reach this point. It doesn't affect the functionality.
         }
         else {
             fs::rename(output_file.clone() + ".part", output_file.clone()).expect(&format!("Count not rename {} into {}", output_file.clone(), output_file.clone() + ".part"));
@@ -242,8 +242,8 @@ fn main() {
 
     merged_peaks.into_par_iter().for_each_with(tx, |txx, peak| {
         let mut reader = IndexedReader::from_path(bcf).expect("Error while opening the bcf file");
-        let mut reference_genome = bio::io::fasta::IndexedReader::from_file(&Path::new(reference_genome_file)).expect("Error while opening the reference genome");
 
+        let mut reference_genome = bio::io::fasta::IndexedReader::from_file(&Path::new(reference_genome_file.clone())).expect(&format!("Error while opening the reference genome '{}'", reference_genome_file));
         let peak_start_time = SystemTime::now();
 
         let ref_haplotype = read_peak_in_reference_genome(chromosome, &peak, &mut reference_genome);
