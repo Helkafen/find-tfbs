@@ -241,10 +241,11 @@ fn main() {
     let start_time = SystemTime::now();
 
     merged_peaks.into_par_iter().for_each_with(tx, |txx, peak| {
+        let peak_start_time = SystemTime::now();
+
         let mut reader = IndexedReader::from_path(bcf).expect("Error while opening the bcf file");
 
         let mut reference_genome = bio::io::fasta::IndexedReader::from_file(&Path::new(reference_genome_file.clone())).expect(&format!("Error while opening the reference genome '{}'", reference_genome_file));
-        let peak_start_time = SystemTime::now();
 
         let ref_haplotype = read_peak_in_reference_genome(chromosome, &peak, &mut reference_genome);
 
