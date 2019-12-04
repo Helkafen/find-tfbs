@@ -70,7 +70,11 @@ pub fn parse_pwm_files(pwm_file: &str, threshold_dir: &str, pwm_threshold: f32, 
                                     }
                                     current_weights = Vec::new();
                                 },
-                                None => println!("Couldn't find a PWM threshold for {}", name),
+                                None => {
+                                    if wanted_pwms.contains(&name) {
+                                        println!("Couldn't find a PWM threshold for {}", name);
+                                    }
+                                },
                             }
                         }
                     }
