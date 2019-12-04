@@ -58,7 +58,11 @@ pub fn parse_pwm_files(pwm_file: &str, threshold_dir: &str, pwm_threshold: f32, 
                                     pattern_id = pattern_id + 1;
                                     {
                                         if add_reverse_patterns {
-                                            let reverse_weights = { let mut x = current_weights; x.reverse(); x };
+                                            let reverse_weights = {
+                                                let mut x = current_weights;
+                                                x.reverse();
+                                                x.iter().map(|w| complement(w)).collect()
+                                            };
                                             let pwm = PWM { weights: reverse_weights, name: name, pattern_id: pattern_id, min_score: t, direction: PWMDirection::N };
                                             pwms.push(pwm);
                                             pattern_id = pattern_id + 1;
@@ -85,6 +89,11 @@ pub fn parse_pwm_files(pwm_file: &str, threshold_dir: &str, pwm_threshold: f32, 
         }
     }
     pwms.into_iter().filter(|p| wanted_pwms.contains(&p.name)).collect()
+}
+
+fn complement(w: &Weight) -> Weight {
+    let x = &w.acgtn;
+    Weight::new(x[3], x[2], x[1], x[0])
 }
 
 fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>> where P: AsRef<Path>, P: std::fmt::Display, P: std::clone::Clone {
