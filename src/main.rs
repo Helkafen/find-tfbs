@@ -137,6 +137,7 @@ fn main() {
                         .arg(Arg::with_name("min_maf")           .short("m").required(false).takes_value(true) .value_name("MIN_NAF")            .long("min_maf")                .help("Minimal number of occurences of the non-majority configurations"))
                         .arg(Arg::with_name("samples")           .short("s").required(false).takes_value(true) .value_name("SAMPLES")            .long("samples")                .help("Samples file"))
                         .arg(Arg::with_name("tabix")             .short("z").required(false).takes_value(false)                                  .long("tabix")                  .help("Compress VCF with bgzip and tabix it"))
+                        .arg(Arg::with_name("0_vs_n")                       .required(false).takes_value(false)                                  .long("0_vs_n")                 .help("Encode the presence/absence of at least one motif on each allele"))
                         .get_matches();
 
     let chromosome               = opt_matches.value_of("chromosome").unwrap();                     //1
@@ -157,6 +158,7 @@ fn main() {
         Some(s) => s.to_string().parse().expect("Cannot parse MAF"),
         None => 0,
     };
+    let mode_0_vs_n              = opt_matches.is_present("0_vs_n");
 
     if let Some(s) = opt_matches.value_of("threads") {
         let n = s.to_string().parse().expect("Cannot parse thread number");
@@ -253,15 +255,54 @@ fn main() {
 
         let (match_list, number_of_haplotypes, number_of_variants) = find_all_matches(chromosome, &peak, &mut reader, &ref_haplotype, &pwm_list, all_haplotypes_with_reference_genome.clone(), &sample_positions_in_bcf);
 
-        for ((source, inner_peak, pattern_id),v) in count_matches_by_sample(&match_list, &inner_peaks, &null_count).drain() {
-            let (distinct_counts, maf, freq0, freq1, freq2, genotypes) = counts_as_genotypes(v);
-            if maf >= min_maf && distinct_counts.len() > 1 {
-                let (pwm_name, pwm_direction) = pwm_name_dict.get(&pattern_id).expect("Logic error: No pattern name for a pattern_id");
-                let id_str = format!("{},{},{},{}-{}",source, pwm_name, pwm_direction, inner_peak.start, inner_peak.end);
-                let distinct_counts_str: Vec<String> = distinct_counts.iter().map(|c| c.to_string()).collect();
-                let info_str = format!("COUNTS={};freqs={}/{}/{}", distinct_counts_str.join(","), freq0, freq1, freq2);
-                txx.send(format!("{}\t{}\t{}\t.\t.\t.\t.\t{}\tGT{}\n", chr, fake_position.lock().unwrap(), id_str, info_str, genotypes).to_string()).expect("Could not write result");
-                *fake_position.lock().unwrap() += 1;
+        for ((source, inner_peak, pattern_id),(v1,v2)) in count_matches_by_sample(&match_list, &inner_peaks, &null_count).drain() {
+            let (pwm_name, pwm_direction) = pwm_name_dict.get(&pattern_id).expect("Logic error: No pattern name for a pattern_id");
+            let id_str = format!("{},{},{},{}-{}",source, pwm_name, pwm_direction, inner_peak.start, inner_peak.end);
+
+            if mode_0_vs_n {
+                let mut genotypes = String::with_capacity(v1.len()*4);
+                let mut zero_count: u32 = 0;
+                let mut one_count: u32 = 0;
+                let mut two_count: u32 = 0;
+                for (&left, &right) in v1.iter().zip(v2.iter()) {
+                    let l = if left == 0 {0} else {1};
+                    let r = if right == 0 {0} else {1};
+                    let s = l + r;
+                    if s == 0 { genotypes.push_str("\t0|0"); zero_count += 1; }
+                    if s == 1 { genotypes.push_str("\t0|1"); one_count += 1; }
+                    if s == 2 { genotypes.push_str("\t1|1"); two_count += 1; }
+                }
+                let maf =
+                    if zero_count >= one_count && zero_count >= two_count {
+                        one_count + two_count
+                    }
+                    else if two_count >= zero_count && two_count >= one_count {
+                        zero_count + one_count
+                    }
+                    else { zero_count + two_count };
+                if zero_count > min_maf && maf > min_maf {
+                    let info_str = format!("freqs={}/{}/{}", zero_count, one_count, two_count);
+                    print!("Send line!");
+                    txx.send(format!("{}\t{}\t{}\t.\t.\t.\t.\t{}\tGT{}\n", chr, fake_position.lock().unwrap(), id_str, info_str, genotypes).to_string()).expect("Could not write result");
+                    *fake_position.lock().unwrap() += 1;
+                }
+                else {
+                    print!("Discard line!");
+                }
+
+            }
+            else {
+                let (distinct_counts, maf, freq0, freq1, freq2, genotypes) = counts_as_genotypes(v1, v2);
+                if maf >= min_maf && distinct_counts.len() > 1 {
+                    let distinct_counts_str: Vec<String> = distinct_counts.iter().map(|c| c.to_string()).collect();
+                    let info_str = format!("COUNTS={};freqs={}/{}/{}", distinct_counts_str.join(","), freq0, freq1, freq2);
+                    print!("Send line!");
+                    txx.send(format!("{}\t{}\t{}\t.\t.\t.\t.\t{}\tGT{}\n", chr, fake_position.lock().unwrap(), id_str, info_str, genotypes).to_string()).expect("Could not write result");
+                    *fake_position.lock().unwrap() += 1;
+                }
+                else {
+                    print!("Discard line!");
+                }
             }
         }
 
@@ -274,7 +315,16 @@ fn main() {
 }
 
 
-fn counts_as_genotypes(v: Vec<u32>) -> (Vec<u32>, u32, u32, u32, u32, String) {
+fn counts_as_genotypes(v1: Vec<u32>, v2: Vec<u32>) -> (Vec<u32>, u32, u32, u32, u32, String) {
+    // Sum the number of motifs on both alleles
+    let v = {
+        assert!(v1.len() == v2.len());
+        let mut v = v1.clone();
+        for (i,x) in v2.iter().enumerate() {
+            v[i] += x;
+        }
+        v
+    };
     let mut res = String::with_capacity(v.len()*4);
     let min = v.iter().min();
     let max = v.iter().max();
@@ -313,25 +363,36 @@ fn counts_as_genotypes(v: Vec<u32>) -> (Vec<u32>, u32, u32, u32, u32, String) {
     }
 }
 
-fn count_matches_by_sample<'a>(match_list: &Vec<Match>, inner_peaks: &'a HashMap<&String, Vec<&Range>>, null_count: &Vec<u32>) -> HashMap<(&'a String, &'a Range, u16), Vec<u32>> {
-    let mut pppp: HashMap<(&String, &Range, u16), Vec<u32>> = HashMap::new();
+fn count_matches_by_sample<'a>(match_list: &Vec<Match>, inner_peaks: &'a HashMap<&String, Vec<&Range>>, null_count: &Vec<u32>) -> HashMap<(&'a String, &'a Range, u16), (Vec<u32>,Vec<u32>)> {
+    let mut pppp: HashMap<(&String, &Range, u16), (Vec<u32>, Vec<u32>)> = HashMap::new();
     for m in match_list {
         let pos = m.pos;
         for (&s,inner) in inner_peaks.iter().map(|(s,x)| (s, x.iter().filter(|y| y.contains(pos)))) {
             for &inner_peak in inner {
                 let key = (s, inner_peak, m.pattern_id);
                 match pppp.get_mut(&key) {
-                    Some(x) => {
+                    Some((l,r)) => {
                         for haplotype_id in m.haplotype_ids.iter() {
-                            x[haplotype_id.sample_id as usize] = x[haplotype_id.sample_id as usize] + 1;
+                            if haplotype_id.side == HaplotypeSide::Left {
+                                l[haplotype_id.sample_id as usize] = l[haplotype_id.sample_id as usize] + 1;
+                            }
+                            else {
+                                r[haplotype_id.sample_id as usize] = r[haplotype_id.sample_id as usize] + 1;
+                            }
+
                         }
                     }
                     None => {
-                        let mut x = null_count.clone();
+                        let (mut l, mut r) = (null_count.clone(), null_count.clone());
                         for haplotype_id in m.haplotype_ids.iter() {
-                            x[haplotype_id.sample_id as usize] = x[haplotype_id.sample_id as usize] + 1;
+                            if haplotype_id.side == HaplotypeSide::Left {
+                                l[haplotype_id.sample_id as usize] = l[haplotype_id.sample_id as usize] + 1;
+                            }
+                            else {
+                                r[haplotype_id.sample_id as usize] = r[haplotype_id.sample_id as usize] + 1;
+                            }
                         }
-                        pppp.insert(key, x);
+                        pppp.insert(key, (l,r));
                     }
                 }
             }
