@@ -8,7 +8,7 @@ edition = "2018"
 
 [dependencies]
 bio = "0.28.2"
-rust-htslib = "0.24.0"
+rust-htslib = "0.26.1"
 bgzip = "0.0.3"
 clap = "2.33.0"
 rayon = "1.2.0"
