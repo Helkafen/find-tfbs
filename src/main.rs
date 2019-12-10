@@ -135,6 +135,7 @@ fn main() {
                         .arg(Arg::with_name("forward_only")      .short("f").required(false).takes_value(false)                                  .long("forward_only")           .help("Only scan forward"))
                         .arg(Arg::with_name("threads")           .short("n").required(false).takes_value(true) .value_name("THREADS")            .long("threads")                .help("Size of the thread pool, in addition to the writer thread"))
                         .arg(Arg::with_name("min_maf")           .short("m").required(false).takes_value(true) .value_name("MIN_NAF")            .long("min_maf")                .help("Minimal number of occurences of the non-majority configurations"))
+                        .arg(Arg::with_name("after_position")    .short("t").required(false).takes_value(true) .value_name("AFTER_POSITION")     .long("after_position")         .help("Only consider peaks that start after this position"))
                         .arg(Arg::with_name("samples")           .short("s").required(false).takes_value(true) .value_name("SAMPLES")            .long("samples")                .help("Samples file"))
                         .arg(Arg::with_name("tabix")             .short("z").required(false).takes_value(false)                                  .long("tabix")                  .help("Compress VCF with bgzip and tabix it"))
                         .arg(Arg::with_name("0_vs_n")                       .required(false).takes_value(false)                                  .long("0_vs_n")                 .help("Encode the presence/absence of at least one motif on each allele"))
@@ -165,6 +166,12 @@ fn main() {
         if n<1 { panic!("Wrong number of threads"); } else { rayon::ThreadPoolBuilder::new().num_threads(n).build_global().expect("Couldn't build the thread pool"); }
     }
 
+    let after_position: u64 =
+        match opt_matches.value_of("after_position") {
+            Some(s) => s.to_string().parse().expect("Cannot parse after_position"),
+            None => 0,
+        };
+
     if run_tabix{
         which::which("bgzip").ok().expect("bgzip cannot in found in PATH");
         which::which("tabix").ok().expect("tabix cannot in found in PATH");
@@ -177,7 +184,7 @@ fn main() {
         pwm_name_dict.insert(pwm.pattern_id, (pwm.name.clone(), pwm.direction.clone()));
     }
 
-    let (merged_peaks, peak_map) = load_peak_files(&bed_files, chromosome);
+    let (merged_peaks, peak_map) = load_peak_files(&bed_files, chromosome, after_position);
 
     let (tx, rx): (Sender<String>, Receiver<String>) = mpsc::channel();
 
