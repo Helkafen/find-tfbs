@@ -289,26 +289,17 @@ fn main() {
                     else { zero_count + two_count };
                 if zero_count > min_maf && maf > min_maf {
                     let info_str = format!("freqs={}/{}/{}", zero_count, one_count, two_count);
-                    print!("Send line!");
                     txx.send(format!("{}\t{}\t{}\t.\t.\t.\t.\t{}\tGT{}\n", chr, fake_position.lock().unwrap(), id_str, info_str, genotypes).to_string()).expect("Could not write result");
                     *fake_position.lock().unwrap() += 1;
                 }
-                else {
-                    print!("Discard line!");
-                }
-
             }
             else {
                 let (distinct_counts, maf, freq0, freq1, freq2, genotypes) = counts_as_genotypes(v1, v2);
                 if maf >= min_maf && distinct_counts.len() > 1 {
                     let distinct_counts_str: Vec<String> = distinct_counts.iter().map(|c| c.to_string()).collect();
                     let info_str = format!("COUNTS={};freqs={}/{}/{}", distinct_counts_str.join(","), freq0, freq1, freq2);
-                    print!("Send line!");
                     txx.send(format!("{}\t{}\t{}\t.\t.\t.\t.\t{}\tGT{}\n", chr, fake_position.lock().unwrap(), id_str, info_str, genotypes).to_string()).expect("Could not write result");
                     *fake_position.lock().unwrap() += 1;
-                }
-                else {
-                    print!("Discard line!");
                 }
             }
         }
