@@ -33,7 +33,6 @@ pub fn load_peak_files(bed_files: &Vec<&str>, chromosome: &str, after_position: 
         else {
             panic!("Bed file {} does not exist", bed_file);
         }
-
     }
     let vals: Vec<Vec<range::Range>> = peak_map.values().map(|x| x.clone()).collect();
     let rs: range::RangeStack = vals.concat().iter().collect();

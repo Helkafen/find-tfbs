@@ -143,3 +143,127 @@ pub fn patch_haplotype(range: &Range, diffs: &Vec<Diff>, ref_haplotype: &Vec<Nuc
 
     return next_chunk(range, range.start, &sorted_diffs, ref_haplotype);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ref_haplotype() -> Vec<NucleotidePos> {
+        vec![
+            NucleotidePos { nuc: Nucleotide::A, pos: 0 },
+            NucleotidePos { nuc: Nucleotide::C, pos: 1 },
+            NucleotidePos { nuc: Nucleotide::G, pos: 2 },
+            NucleotidePos { nuc: Nucleotide::T, pos: 3 }
+        ]
+    }
+
+
+    #[test]
+    fn test_patch_haplotype_with_no_diff() {
+        let diffs = Vec::new();
+        let patched = patch_haplotype(&Range::new(1,2), &diffs, &ref_haplotype());
+        let expected = vec![nucp('C',1), nucp('G',2)];
+        assert_eq!(patched, expected);
+
+        let patched2 = patch_haplotype(&Range::new(0,2), &diffs, &ref_haplotype());
+        let expected2 = vec![nucp('A',0), nucp('C',1), nucp('G',2)];
+        assert_eq!(patched2, expected2);
+
+        let patched3 = patch_haplotype(&Range::new(0,5), &diffs, &ref_haplotype());
+        let expected3 = vec![nucp('A',0), nucp('C',1), nucp('G',2), nucp('T',3)];
+        assert_eq!(patched3, expected3);
+    }
+
+    #[test]
+    fn test_patch_haplotype_one_snp() {
+        let diffs = vec![Diff { pos: 100, reference: nucs("A"), alternative: nucs("C") }];
+        let patched = patch_haplotype(&Range::new(1,2), &diffs, &ref_haplotype());
+        let expected = vec![nucp('C',1), nucp('G',2)];
+        assert_eq!(patched, expected);
+
+        let diffs2 = vec![Diff { pos: 1, reference: nucs("C"), alternative: nucs("N") }];
+        let patched2 = patch_haplotype(&Range::new(1,2), &diffs2, &ref_haplotype());
+        let expected2 = vec![nucp('N',1), nucp('G',2)];
+        assert_eq!(patched2, expected2);
+
+        let diffs3 = vec![Diff { pos: 2, reference: nucs("G"), alternative: nucs("A") }];
+        let patched3 = patch_haplotype(&Range::new(1,2), &diffs3, &ref_haplotype());
+        let expected3 = vec![nucp('C',1), nucp('A',2)];
+        assert_eq!(patched3, expected3);
+    }
+
+    #[test]
+    fn test_patch_haplotype_two_snp() {
+        let diffs = vec![Diff { pos: 1, reference: nucs("C"), alternative: nucs("N")}, Diff { pos: 2, reference: nucs("G"), alternative: nucs("A") }];
+        let patched = patch_haplotype(&Range::new(1,2), &diffs, &ref_haplotype());
+        let expected = vec![nucp('N',1), nucp('A',2)];
+        assert_eq!(patched, expected);
+
+        let diffs2 = vec![Diff { pos: 1, reference: nucs("C"), alternative: nucs("N") }, Diff { pos: 4, reference: nucs("G"), alternative: nucs("A") }];
+        let patched2 = patch_haplotype(&Range::new(1,2), &diffs2, &ref_haplotype());
+        let expected2 = vec![nucp('N',1), nucp('G',2)];
+        assert_eq!(patched2, expected2);
+    }
+
+    #[test]
+    fn test_patch_haplotype_one_insert() {
+        let diffs = vec![Diff { pos: 1, reference: nucs("C"), alternative: nucs("NN") }];
+        let patched = patch_haplotype(&Range::new(1,2), &diffs, &ref_haplotype());
+        let expected = vec![nucp('N',1), nucp('N',1), nucp('G',2)];
+        assert_eq!(patched, expected);
+
+        let diffs2 = vec![Diff { pos: 2, reference: nucs("C"), alternative: nucs("NN") }];
+        let patched2 = patch_haplotype(&Range::new(1,2), &diffs2, &ref_haplotype());
+        let expected2 = vec![nucp('C',1), nucp('N',2), nucp('N',2)];
+        assert_eq!(patched2, expected2);
+
+        let diffs3 = vec![Diff { pos: 3, reference: nucs("C"), alternative: nucs("NN") }];
+        let patched3 = patch_haplotype(&Range::new(1,2), &diffs3, &ref_haplotype());
+        let expected3 = vec![nucp('C',1), nucp('G',2)];
+        assert_eq!(patched3, expected3);
+    }
+
+    #[test]
+    fn test_patch_haplotype_one_deletion() {
+        let diffs = vec![Diff { pos: 1, reference: nucs("CG"), alternative: nucs("C") }];
+        let patched = patch_haplotype(&Range::new(1,2), &diffs, &ref_haplotype());
+        let expected = vec![nucp('C',1)];
+        assert_eq!(patched, expected);
+
+        let diffs2 = vec![Diff { pos: 2, reference: nucs("GT"), alternative: nucs("G") }];
+        let patched2 = patch_haplotype(&Range::new(1,2), &diffs2, &ref_haplotype());
+        let expected2 = vec![nucp('C',1), nucp('G',2)];
+        assert_eq!(patched2, expected2);
+
+        // For simplicity, do not apply a Diff that starts before the window we're observing
+        let diffs3 = vec![Diff { pos: 0, reference: nucs("AC"), alternative: nucs("A") }];
+        let patched3 = patch_haplotype(&Range::new(1,2), &diffs3, &ref_haplotype());
+        let expected3 = vec![nucp('C',1), nucp('G',2)];
+        assert_eq!(patched3, expected3);
+    }
+
+    fn nucs(s: &str) -> Vec<Nucleotide> {
+        let mut v = Vec::new();
+        for c in s.chars() {
+            if c == 'N' { v.push(Nucleotide::N); }
+            else if c == 'A' { v.push(Nucleotide::A); }
+            else if c == 'C' { v.push(Nucleotide::C); }
+            else if c == 'G' { v.push(Nucleotide::G); }
+            else if c == 'T' { v.push(Nucleotide::T); }
+            else { panic!("Wrong nucleotide sequence in tests"); }
+        }
+        return v;
+    }
+
+    fn nucp(c: char, p: u64) -> NucleotidePos {
+        let nuc = {
+            if c == 'N'      { Nucleotide::N }
+            else if c == 'A' { Nucleotide::A }
+            else if c == 'C' { Nucleotide::C }
+            else if c == 'G' { Nucleotide::G }
+            else if c == 'T' { Nucleotide::T }
+            else { panic!("Wrong nucleotide sequence in tests"); }
+        };
+        return NucleotidePos { nuc: nuc, pos: p };
+    }
+}

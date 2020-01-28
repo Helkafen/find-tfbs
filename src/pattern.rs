@@ -163,3 +163,87 @@ pub fn matches(pwm: &PWM, haplotype: &Vec<NucleotidePos>, haplotype_ids: Rc<Vec<
                 //    }
                 //    println!("");
                 //}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_pwm_files() {
+        let pwms = parse_pwm_files("HOCOMOCOv11_full_pwms_HUMAN_mono.txt", "thresholds", 0.001, vec!["GATA1_HUMAN.H11MO.1.A".to_string(), "GATA2_HUMAN.H11MO.1.A".to_string()], true);
+        assert_eq!(pwms.len(), 4);
+        assert_eq!(pwms[0].name, "GATA1_HUMAN.H11MO.1.A");
+        assert_eq!(pwms[1].name, "GATA1_HUMAN.H11MO.1.A");
+        assert_eq!(pwms[2].name, "GATA2_HUMAN.H11MO.1.A");
+        assert_eq!(pwms[3].name, "GATA2_HUMAN.H11MO.1.A");
+
+        assert_eq!(pwms[0].direction, PWMDirection::P);
+        assert_eq!(pwms[1].direction, PWMDirection::N);
+        assert_eq!(pwms[2].direction, PWMDirection::P);
+        assert_eq!(pwms[3].direction, PWMDirection::N);
+
+        assert_eq!(pwms[0].pattern_id, 0);
+        assert_eq!(pwms[1].pattern_id, 0);
+        assert_eq!(pwms[2].pattern_id, 1);
+        assert_eq!(pwms[3].pattern_id, 1);
+
+        assert_eq!(pwms[0].min_score, 4683);
+        assert_eq!(pwms[1].min_score, 4683);
+        assert_eq!(pwms[2].min_score, 5314);
+        assert_eq!(pwms[3].min_score, 5314);
+    }
+
+    #[test]
+    fn test_parse_threshold() {
+        let threshold = parse_threshold_file(&"thresholds/GATA1_HUMAN.H11MO.0.A.thr".to_string(), 1e-04);
+        assert_eq!(threshold, Some(7751));
+    }
+
+    #[test]
+    fn test_matches() {
+        let c = Weight::new(0, 1000, 0, 0);
+        let g = Weight::new(0, 0, 1000, 0);
+        let pwm = PWM {weights: vec![c,g], name: "pwm".to_string(), pattern_id: 5, min_score: 1500, direction: PWMDirection::P};
+        let haplotype = vec![
+            NucleotidePos { nuc: Nucleotide::A, pos: 10 },
+            NucleotidePos { nuc: Nucleotide::C, pos: 11 },
+            NucleotidePos { nuc: Nucleotide::G, pos: 12 },
+            NucleotidePos { nuc: Nucleotide::T, pos: 13 }
+        ];
+        let haplotype_ids = Rc::new(Vec::new());
+        let m = matches(&pwm, &haplotype, haplotype_ids.clone());
+        let expected = vec![Match {pos: 11, pattern_id: 5, haplotype_ids: haplotype_ids.clone()}];
+        assert_eq!(m, expected);
+    }
+
+    #[test]
+    fn test_match_gataa() {
+        let pwm = PWM { weights: vec![Weight::new(0,0,100,0), Weight::new(100,0,0,0), Weight::new(0,0,0,100), Weight::new(100,0,0,0), Weight::new(100,0,0,0), ], name: "Example".to_string(), pattern_id: 123, min_score: 499, direction: PWMDirection::P };
+        let haplotype_with_padding = vec![nucp('N',0), nucp('G',1), nucp('A',2), nucp('T',3), nucp('A',4), nucp('A',5), nucp('N',6)];
+        let haplotype_without_padding = vec![nucp('G',1), nucp('A',2), nucp('T',3), nucp('A',4), nucp('A',5)];
+        let haplotype_ids = Rc::new(vec![HaplotypeId { sample_id: 456, side: HaplotypeSide::Right }]);
+        let ms = matches(&pwm, &haplotype_with_padding, haplotype_ids.clone());
+        assert_eq!(ms.len(), 1);
+        let ms2 = matches(&pwm, &haplotype_without_padding, haplotype_ids.clone());
+        assert_eq!(ms2.len(), 1);
+
+        let pwm2 = PWM { weights: vec![Weight::new(0,0,100,0), Weight::new(100,0,0,0), Weight::new(0,0,0,100), Weight::new(100,0,0,0), Weight::new(100,0,0,0), ], name: "Example".to_string(), pattern_id: 123, min_score: 500, direction: PWMDirection::P };
+        let ms3 = matches(&pwm2, &haplotype_with_padding, haplotype_ids.clone());
+        assert_eq!(ms3.len(), 0);
+        let ms4 = matches(&pwm2, &haplotype_without_padding, haplotype_ids.clone());
+        assert_eq!(ms4.len(), 0);
+    }
+
+    fn nucp(c: char, p: u64) -> NucleotidePos {
+        let nuc = {
+            if c == 'N'      { Nucleotide::N }
+            else if c == 'A' { Nucleotide::A }
+            else if c == 'C' { Nucleotide::C }
+            else if c == 'G' { Nucleotide::G }
+            else if c == 'T' { Nucleotide::T }
+            else { panic!("Wrong nucleotide sequence in tests"); }
+        };
+        return NucleotidePos { nuc: nuc, pos: p };
+    }
+}
