@@ -9,13 +9,43 @@ use std::fs::read_to_string;
 
 use super::types::*;
 
-pub fn parse_pwm_files(pwm_file: &str, threshold_dir: &str, pwm_threshold: f32, wanted_pwms: Vec<String>, add_reverse_patterns: bool) -> Vec<PWM> {
-    fn parse_weight(s: &String) -> i32 {
-        let x: f32 = s.parse().unwrap();
-        (x * 1000.0).round() as i32
-    }
+fn parse_weight(s: &String) -> i32 {
+    let x: f32 = s.parse().unwrap();
+    (x * 1000.0).round() as i32
+}
 
-    let mut thresholds = HashMap::new();
+pub fn parse_threshold_file(filename: &String, pwm_threshold: f32) -> Option<i32> {
+    let mut result = None;
+    if let Ok(lines) = read_lines(filename.clone()) {
+        for line in lines {
+            if let Ok(l) = line {
+                let x: Vec<String> = l.split_whitespace().into_iter().map(|a| a.to_string()).collect();
+                if x.len() == 2 {
+                    let weight = parse_weight(&x[0]);
+                    let pvalue: f32 = x[1].parse().expect(&format!("Can't parse pvalue in file {}", &filename));
+                    if pvalue > pwm_threshold {
+                        result = Some(weight);
+                    }
+                }
+            }
+        }
+    }
+    return result;
+}
+
+pub fn parse_pwm_files(pwm_file: &str, threshold_dir: &str, pwm_threshold: f32, wanted_pwms: Vec<String>, add_reverse_patterns: bool) -> Vec<PWM> {
+
+    let thresholds = {
+        let mut thresholds = HashMap::new();
+        for p in &wanted_pwms {
+            let threshold_file = format!("{}/{}.thr", threshold_dir.trim_end_matches("/"), p);
+            match parse_threshold_file(&threshold_file, pwm_threshold) {
+                Some(min_score) => { thresholds.insert(p.clone(), min_score); },
+                None => { println!("Could not parse {}",threshold_file); },
+            };
+        }
+        thresholds
+    };
 
     // See https://academic.oup.com/nar/article/46/D1/D252/4616875 and https://oup.silverchair-cdn.com/oup/backfile/Content_public/Journal/nar/46/D1/10.1093_nar_gkx1106/2/gkx1106_supp.pdf for the definition of the PWMs
     // Careful: JDP2,GATA5,MESP1,ID4,ASCL2,SPIC have quality "D", which is too low to make de novo predictions
@@ -24,27 +54,7 @@ pub fn parse_pwm_files(pwm_file: &str, threshold_dir: &str, pwm_threshold: f32, 
     // At 0.0005, the median sensitivity to positive controls is 0.75
     // Maybe consider diPWMs, which seem to be a bit more specific: https://pdfs.semanticscholar.org/57e5/4745230282ff9692685dad6735bfe0d44942.pdf
     // Comparison of the ROC of several tools including ChipMunk: https://www.researchgate.net/publication/51632780_Tree-Based_Position_Weight_Matrix_Approach_to_Model_Transcription_Factor_Binding_Site_Profiles/figures?lo=1
-    for p in &wanted_pwms {
-        let threshold_file = format!("{}/{}.thr", threshold_dir.trim_end_matches("/"), p);
-        if let Ok(lines) = read_lines(threshold_file.clone()) {
-            for line in lines {
-                if let Ok(l) = line {
-                    let x: Vec<String> = l.split_whitespace().into_iter().map(|a| a.to_string()).collect();
-                    if x.len() == 2 {
-                        let weight = parse_weight(&x[0]);
-                        let pvalue: f32 = x[1].parse().expect(&format!("Can't parse pvalue in file {}", &threshold_file));
-                        if pvalue > pwm_threshold {
-                            thresholds.insert(p.clone(), weight);
-                        }
-                    }
-                }
-            }
-        }
-    }
 
-    for (k,v) in &thresholds {
-        println!("threshold {} {}", k, v);
-    }
 
     let mut pwms = Vec::new();
     let mut pattern_id = 0;
@@ -54,38 +64,45 @@ pub fn parse_pwm_files(pwm_file: &str, threshold_dir: &str, pwm_threshold: f32, 
         Ok(content) => {
             for chunk in content.split(">") {
                 if chunk.len() < 1 { continue; }
-                let lines: Vec<&str> = chunk.split("\n").filter(|x| x.len() > 0).collect();
-                let name = lines[0].to_string();
-                let mut current_weights: Vec<Weight> = Vec::new();
-                for line in lines.into_iter().skip(1) {
-                    let fields: Vec<String> = line.split_whitespace().into_iter().map(|a| a.to_string()).collect();
-                    if fields.len() == 4 {
-                        let w = Weight::new(parse_weight(&fields[0]), parse_weight(&fields[1]), parse_weight(&fields[2]), parse_weight(&fields[3]));
-                        current_weights.push(w);
-                    }
-                }
-                if wanted_pwms.contains(&name) {
-                    match thresholds.get(&name) {
-                        Some(&t) => {
-                            let pwm = PWM { weights: current_weights.clone(), name: name.clone(), pattern_id: pattern_id, min_score: t, direction: PWMDirection::P };
-                            pwms.push(pwm);
-                            println!("Loaded PWM {} (len {}, id {}, min_score {}) ", name, current_weights.len(), pattern_id, t);
-                            if add_reverse_patterns {
-                                let reverse_complement_weights = { let mut x = current_weights; x.reverse(); x.iter().map(|w| complement(w)).collect() };
-                                let pwm = PWM { weights: reverse_complement_weights, name: name, pattern_id: pattern_id, min_score: t, direction: PWMDirection::N };
-                                pwms.push(pwm);
+                let (name, weights) = parse_pwm_definition(chunk);
+                    if wanted_pwms.contains(&name) {
+                        match thresholds.get(&name) {
+                            None => { println!("Couldn't find a PWM threshold for {}", name); },
+                            Some(&min_score) => {
+                                let pwm = PWM { weights: weights.clone(), name: name.clone(), pattern_id: pattern_id, min_score: min_score, direction: PWMDirection::P};
+                                pwms.push(pwm.clone());
+                                if add_reverse_patterns {
+                                    pwms.push(PWM { weights: reverse_complement(weights.clone()), direction: PWMDirection::N, ..pwm });
+                                }
+                                println!("Loaded PWM {} (len {}, id {}, min_score {}) ", name, weights.len(), pattern_id, min_score);
                             }
-                            pattern_id = pattern_id + 1;
                         }
-                        None => {
-                            println!("Couldn't find a PWM threshold for {}", name);
-                        }
+                        pattern_id = pattern_id + 1;
                     }
                 }
             }
         }
-    }
     pwms
+}
+
+fn parse_pwm_definition(chunk: &str) -> (String, Vec<Weight>) {
+    let lines: Vec<&str> = chunk.split("\n").filter(|x| x.len() > 0).collect();
+    let name = lines[0].to_string();
+    let mut current_weights: Vec<Weight> = Vec::new();
+    for line in lines.into_iter().skip(1) {
+        let fields: Vec<String> = line.split_whitespace().into_iter().map(|a| a.to_string()).collect();
+        if fields.len() == 4 {
+            let w = Weight::new(parse_weight(&fields[0]), parse_weight(&fields[1]), parse_weight(&fields[2]), parse_weight(&fields[3]));
+            current_weights.push(w);
+        }
+    }
+    return (name, current_weights);
+}
+
+fn reverse_complement(w: Vec<Weight>) -> Vec<Weight> {
+    let mut x = w;
+    x.reverse();
+    return x.iter().map(|w| complement(w)).collect();
 }
 
 fn complement(w: &Weight) -> Weight {

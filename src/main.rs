@@ -38,7 +38,7 @@ mod bed;
 
 use types::*;
 use range::Range;
-use pattern::{parse_pwm_files,matches};
+use pattern::{parse_pwm_files,matches,parse_threshold_file};
 use util::to_nucleotides_pos;
 use haplotype::load_haplotypes;
 use bed::load_peak_files;
@@ -557,14 +557,20 @@ mod tests {
         assert_eq!(pwms[3].direction, PWMDirection::N);
 
         assert_eq!(pwms[0].pattern_id, 0);
-        assert_eq!(pwms[1].pattern_id, 1);
-        assert_eq!(pwms[2].pattern_id, 2);
-        assert_eq!(pwms[3].pattern_id, 3);
+        assert_eq!(pwms[1].pattern_id, 0);
+        assert_eq!(pwms[2].pattern_id, 1);
+        assert_eq!(pwms[3].pattern_id, 1);
 
         assert_eq!(pwms[0].min_score, 4683);
         assert_eq!(pwms[1].min_score, 4683);
         assert_eq!(pwms[2].min_score, 5314);
         assert_eq!(pwms[3].min_score, 5314);
+    }
+
+    #[test]
+    fn test_parse_threshold() {
+        let threshold = parse_threshold_file(&"thresholds/GATA1_HUMAN.H11MO.0.A.thr".to_string(), 1e-04);
+        assert_eq!(threshold, Some(7751));
     }
 
     fn nucs(s: &str) -> Vec<Nucleotide> {
