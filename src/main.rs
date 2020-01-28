@@ -162,17 +162,6 @@ fn main() {
     };
     let mode_0_vs_n              = opt_matches.is_present("0_vs_n");
 
-    let after_position: u64 =
-        match opt_matches.value_of("after_position") {
-            Some(s) => s.to_string().parse().expect("Cannot parse after_position"),
-            None => 0,
-        };
-
-    if let Some(s) = opt_matches.value_of("threads") {
-        let n = s.to_string().parse().expect("Cannot parse thread number");
-        if n<1 { panic!("Wrong number of threads"); } else { rayon::ThreadPoolBuilder::new().num_threads(n).build_global().expect("Couldn't build the thread pool"); }
-    }
-
     if let Some(s) = opt_matches.value_of("threads") {
         let n = s.to_string().parse().expect("Cannot parse thread number");
         if n<1 { panic!("Wrong number of threads"); } else { rayon::ThreadPoolBuilder::new().num_threads(n).build_global().expect("Couldn't build the thread pool"); }
@@ -192,7 +181,7 @@ fn main() {
     let pwm_list: Vec<PWM> = parse_pwm_files(pwm_file, pwm_threshold_directory, pwm_threshold, wanted_pwms, !forward_only);
     let mut pwm_name_dict = HashMap::new();
     for pwm in &pwm_list {
-        println!("PWM {} {} {}", pwm.name, pwm.min_score, pwm.direction);
+        println!("PWM {} {} {} {}", pwm.name, pwm.min_score, pwm.direction, pwm.weights.len());
         pwm_name_dict.insert(pwm.pattern_id, pwm.name.clone());
     }
 
@@ -216,6 +205,7 @@ fn main() {
         else {
             fs::rename(output_file.clone() + ".part", output_file.clone()).expect(&format!("Count not rename {} into {}", output_file.clone(), output_file.clone() + ".part"));
         }
+        let _ = writer.flush();
         println!("End of writer");
     });
 
