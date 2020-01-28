@@ -91,6 +91,7 @@ fn find_all_matches(chromosome: &str, peak: &Range, reader: &mut IndexedReader, 
         for h in haplotype_ids.iter() {
             haplotypes_with_reference_genome.remove(&h);
         }
+        //println!("{} PWMs", pwm_list.len());
         for pwm in pwm_list {
             match_list.extend(matches(pwm, &haplotype, haplotype_ids.clone()));
         }
@@ -181,7 +182,7 @@ fn main() {
     let mut pwm_name_dict = HashMap::new();
     for pwm in &pwm_list {
         println!("PWM {} {} {}", pwm.name, pwm.min_score, pwm.direction);
-        pwm_name_dict.insert(pwm.pattern_id, (pwm.name.clone(), pwm.direction.clone()));
+        pwm_name_dict.insert(pwm.pattern_id, pwm.name.clone());
     }
 
     let (merged_peaks, peak_map) = load_peak_files(&bed_files, chromosome, after_position);
@@ -192,8 +193,8 @@ fn main() {
         let mut writer = BGzWriter::new(BufWriter::with_capacity(4096*1000,fs::File::create(output_file.clone() + ".part").expect("Could not create output file")));
         loop {
             match rx.recv() {
-                Ok(s) => { writer.write(s.as_bytes()).expect("Could not write bytes to output file"); }
-                Err(_) => { break; }
+                Ok(s) => { /*if s.contains("GATA1") {println!("Some GATA1"); };*/ writer.write(s.as_bytes()).expect("Could not write bytes to output file"); }
+                Err(_) => { let _ = writer.flush(); break; }
             }
         };
         if run_tabix{
@@ -204,6 +205,7 @@ fn main() {
         else {
             fs::rename(output_file.clone() + ".part", output_file.clone()).expect(&format!("Count not rename {} into {}", output_file.clone(), output_file.clone() + ".part"));
         }
+        println!("End of writer");
     });
 
     let mut reader = IndexedReader::from_path(bcf).expect("Error while opening the bcf file");
@@ -263,8 +265,8 @@ fn main() {
         let (match_list, number_of_haplotypes, number_of_variants) = find_all_matches(chromosome, &peak, &mut reader, &ref_haplotype, &pwm_list, all_haplotypes_with_reference_genome.clone(), &sample_positions_in_bcf);
 
         for ((source, inner_peak, pattern_id),(v1,v2)) in count_matches_by_sample(&match_list, &inner_peaks, &null_count).drain() {
-            let (pwm_name, pwm_direction) = pwm_name_dict.get(&pattern_id).expect("Logic error: No pattern name for a pattern_id");
-            let id_str = format!("{},{},{},{}-{}",source, pwm_name, pwm_direction, inner_peak.start, inner_peak.end);
+            let pwm_name = pwm_name_dict.get(&pattern_id).expect("Logic error: No pattern name for a pattern_id");
+            let id_str = format!("{},{},{}-{}",source, pwm_name, inner_peak.start, inner_peak.end);
 
             if mode_0_vs_n {
                 let mut genotypes = String::with_capacity(v1.len()*4);
@@ -310,6 +312,8 @@ fn main() {
         *number_of_peaks_processed.lock().unwrap() += 1;
         println!("Peak {}/{}\t{} ms ({} total)\t{}\t{}\t{} haplotypes\t{} variants\t{} matches", number_of_peaks_processed.lock().unwrap(), number_of_peaks, peak_time_elapsed, global_time_elapsed, peak.start, peak.end, number_of_haplotypes, number_of_variants, number_of_matches);
     });
+
+    let _ = _writer_thread.join();
 }
 
 
@@ -377,7 +381,6 @@ fn count_matches_by_sample<'a>(match_list: &Vec<Match>, inner_peaks: &'a HashMap
                             else {
                                 r[haplotype_id.sample_id as usize] = r[haplotype_id.sample_id as usize] + 1;
                             }
-
                         }
                     }
                     None => {

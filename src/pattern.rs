@@ -4,6 +4,8 @@ use std::fs::File;
 use std::io::{BufRead};
 use std::path::Path;
 use std::rc::Rc;
+use std::process::exit;
+use std::fs::read_to_string;
 
 use super::types::*;
 
@@ -40,59 +42,50 @@ pub fn parse_pwm_files(pwm_file: &str, threshold_dir: &str, pwm_threshold: f32, 
         }
     }
 
+    for (k,v) in &thresholds {
+        println!("threshold {} {}", k, v);
+    }
+
     let mut pwms = Vec::new();
     let mut pattern_id = 0;
-    let mut current_name: Option<String> = None;
-    let mut current_weights: Vec<Weight> = Vec::new();
-    if let Ok(lines) = read_lines(pwm_file) {
-        for line in lines {
-            if let Ok(l) = line {
-                if l.chars().next() == Some('>') {
-                    match current_name {
-                        None => (),
-                        Some(name) => {
-                            match thresholds.get(&name) {
-                                Some(&t) => {
-                                    let pwm = PWM { weights: current_weights.clone(), name: name.clone(), pattern_id: pattern_id, min_score: t, direction: PWMDirection::P };
-                                    pwms.push(pwm);
-                                    pattern_id = pattern_id + 1;
-                                    {
-                                        if add_reverse_patterns {
-                                            let reverse_weights = {
-                                                let mut x = current_weights;
-                                                x.reverse();
-                                                x.iter().map(|w| complement(w)).collect()
-                                            };
-                                            let pwm = PWM { weights: reverse_weights, name: name, pattern_id: pattern_id, min_score: t, direction: PWMDirection::N };
-                                            pwms.push(pwm);
-                                            pattern_id = pattern_id + 1;
-                                        }
-                                    }
-                                    current_weights = Vec::new();
-                                },
-                                None => {
-                                    if wanted_pwms.contains(&name) {
-                                        println!("Couldn't find a PWM threshold for {}", name);
-                                    }
-                                },
-                            }
-                        }
-                    }
-                    current_name = Some(l[1..].to_string());
-                }
-                else if l.is_empty() {
-                }
-                else {
-                    let fields: Vec<String> = l.split_whitespace().into_iter().map(|a| a.to_string()).collect();
+
+    match read_to_string(pwm_file) {
+        Err(_) => { println!("Could not open file {}", pwm_file); exit(1); }
+        Ok(content) => {
+            for chunk in content.split(">") {
+                if chunk.len() < 1 { continue; }
+                let lines: Vec<&str> = chunk.split("\n").filter(|x| x.len() > 0).collect();
+                let name = lines[0].to_string();
+                let mut current_weights: Vec<Weight> = Vec::new();
+                for line in lines.into_iter().skip(1) {
+                    let fields: Vec<String> = line.split_whitespace().into_iter().map(|a| a.to_string()).collect();
                     if fields.len() == 4 {
                         let w = Weight::new(parse_weight(&fields[0]), parse_weight(&fields[1]), parse_weight(&fields[2]), parse_weight(&fields[3]));
                         current_weights.push(w);
                     }
                 }
+                if wanted_pwms.contains(&name) {
+                    match thresholds.get(&name) {
+                        Some(&t) => {
+                            let pwm = PWM { weights: current_weights.clone(), name: name.clone(), pattern_id: pattern_id, min_score: t, direction: PWMDirection::P };
+                            pwms.push(pwm);
+                            println!("Loaded PWM {} (len {}, id {}, min_score {}) ", name, current_weights.len(), pattern_id, t);
+                            if add_reverse_patterns {
+                                let reverse_complement_weights = { let mut x = current_weights; x.reverse(); x.iter().map(|w| complement(w)).collect() };
+                                let pwm = PWM { weights: reverse_complement_weights, name: name, pattern_id: pattern_id, min_score: t, direction: PWMDirection::N };
+                                pwms.push(pwm);
+                            }
+                            pattern_id = pattern_id + 1;
+                        }
+                        None => {
+                            println!("Couldn't find a PWM threshold for {}", name);
+                        }
+                    }
+                }
             }
         }
     }
-    pwms.into_iter().filter(|p| wanted_pwms.contains(&p.name)).collect()
+    pwms
 }
 
 fn complement(w: &Weight) -> Weight {
@@ -121,14 +114,21 @@ fn apply_pwm(pwm: &PWM, haplotype: &[NucleotidePos]) -> i32 {
 
 pub fn matches(pwm: &PWM, haplotype: &Vec<NucleotidePos>, haplotype_ids: Rc<Vec<HaplotypeId>>) -> Vec<Match> {
     let mut res = Vec::new();
+    //println!("enter matches {} {}", haplotype.len(), pwm.weights.len());
     if haplotype.len() >= pwm.weights.len() {
+        //println!("haplotype.len() >= pwm.weights.len() {} {} {}", haplotype.len(), pwm.weights.len(), pwm.name);
         for i in 0..(haplotype.len()-pwm.weights.len()+1) {
             let score = apply_pwm(&pwm, &haplotype[i..]);
+            //println!("score {} min_score {} name {}", score, pwm.min_score, pwm.name);
             if score > pwm.min_score {
+                //println!("----- score {} min_score {}", score, pwm.min_score);
                 let m = Match { pos : haplotype[i].pos, pattern_id : pwm.pattern_id, haplotype_ids: haplotype_ids.clone() };
                 res.push(m);
             }
         }
+    }
+    else {
+        println!("Haplotype too short for pwm {} vs {}", haplotype.len(), pwm.weights.len());
     }
     return res;
 }
