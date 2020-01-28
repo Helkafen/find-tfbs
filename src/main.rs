@@ -133,7 +133,7 @@ fn main() {
                         .arg(Arg::with_name("pwm_file")          .short("p").required(true) .takes_value(true) .value_name("PWM")                .long("pwm_file")               .help("PWM file. Ex: HOCOMOCOv11_full_pwms_HUMAN_mono.txt"))
                         .arg(Arg::with_name("pwm_threshold_dir")            .required(true) .takes_value(true) .value_name("THRESHOLD_DIRECTORY").long("pwm_threshold_directory").help("PWM thresholds directory. Extracted from HOCOMOCO's thresholds_HUMAN_mono.tar.gz"))
                         .arg(Arg::with_name("pwm_threshold")     .short("t").required(true) .takes_value(true) .value_name("THRESHOLD")          .long("pwm_threshold")          .help("PWM threshold value. E.g 0.001"))
-                        .arg(Arg::with_name("forward_only")      .short("f").required(false).takes_value(false)                                  .long("forward_only")           .help("Only scan forward"))
+                        .arg(Arg::with_name("forward_only")      .short("f").required(false).takes_value(false)                                  .long("forward_only")           .help("Only examine the forward strand"))
                         .arg(Arg::with_name("threads")           .short("n").required(false).takes_value(true) .value_name("THREADS")            .long("threads")                .help("Size of the thread pool, in addition to the writer thread"))
                         .arg(Arg::with_name("min_maf")           .short("m").required(false).takes_value(true) .value_name("MIN_NAF")            .long("min_maf")                .help("Minimal number of occurences of the non-majority configurations"))
                         .arg(Arg::with_name("after_position")    .short("t").required(false).takes_value(true) .value_name("AFTER_POSITION")     .long("after_position")         .help("Only consider peaks that start after this position"))
@@ -161,6 +161,17 @@ fn main() {
         None => 0,
     };
     let mode_0_vs_n              = opt_matches.is_present("0_vs_n");
+
+    let after_position: u64 =
+        match opt_matches.value_of("after_position") {
+            Some(s) => s.to_string().parse().expect("Cannot parse after_position"),
+            None => 0,
+        };
+
+    if let Some(s) = opt_matches.value_of("threads") {
+        let n = s.to_string().parse().expect("Cannot parse thread number");
+        if n<1 { panic!("Wrong number of threads"); } else { rayon::ThreadPoolBuilder::new().num_threads(n).build_global().expect("Couldn't build the thread pool"); }
+    }
 
     if let Some(s) = opt_matches.value_of("threads") {
         let n = s.to_string().parse().expect("Cannot parse thread number");
