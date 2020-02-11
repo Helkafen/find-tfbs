@@ -31,11 +31,19 @@ fn load_diffs(reader: &mut IndexedReader, sample_positions_in_bcf: &Vec<usize>) 
                         let genotype = genotypes.get(sample_position);
                         assert!(number_of_alleles == genotype.len(), "Inconsistent number of alleles");
 
-                        if has_alternative(&genotype, HaplotypeSide::Left) {
+                        let has_alternative_left = match unsafe { genotype.get_unchecked(0) } {
+                            GenotypeAllele::Unphased(1) => true,
+                            _ => false,
+                        };
+                        let has_alternative_right = match unsafe { genotype.get_unchecked(1) } {
+                            GenotypeAllele::Phased(1) => true,
+                            _ => false,
+                        };
+                        if has_alternative_left {
                             let haplotype_id = HaplotypeId { sample_id : sample_id, side: HaplotypeSide::Left };
                             xs.entry(haplotype_id).or_insert(Vec::new()).push(diff.clone());
                         }
-                        if has_alternative(&genotype, HaplotypeSide::Right) {
+                        if has_alternative_right {
                             let haplotype_id = HaplotypeId { sample_id : sample_id, side: HaplotypeSide::Right };
                             xs.entry(haplotype_id).or_insert(Vec::new()).push(diff.clone());
                         }
@@ -53,7 +61,7 @@ fn load_diffs(reader: &mut IndexedReader, sample_positions_in_bcf: &Vec<usize>) 
     (xs, variant_count)
 }
 
-fn has_alternative(genotype: &Genotype, side: HaplotypeSide) -> bool{
+/*fn has_alternative(genotype: &Genotype, side: HaplotypeSide) -> bool{
     let index = match side {
         HaplotypeSide::Left => 0,
         HaplotypeSide::Right => 1,
@@ -63,7 +71,7 @@ fn has_alternative(genotype: &Genotype, side: HaplotypeSide) -> bool{
         GenotypeAllele::Unphased(1) => true,
         _ => false,
     }
-}
+}*/
 
 fn group_by_diffs(mut diffs: HashMap<HaplotypeId, Vec<Diff>>) -> HashMap<Vec<Diff>, Rc<Vec<HaplotypeId>>> {
     let mut res: HashMap<Vec<Diff>, Vec<HaplotypeId>> = HashMap::new();

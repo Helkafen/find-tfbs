@@ -3,6 +3,7 @@ extern crate clap;
 extern crate rayon;
 extern crate which;
 extern crate subprocess;
+extern crate multiqueue;
 
 use std::rc::Rc;
 use rust_htslib::bcf::*;
@@ -24,6 +25,8 @@ use std::sync::mpsc;
 use std::thread;
 use std::sync::{Arc,Mutex};
 use rayon::prelude::*;
+
+
 
 use clap::{Arg, App};
 
@@ -110,8 +113,8 @@ fn find_all_matches(chromosome: &str, peak: &Range, reader: &mut IndexedReader, 
     (match_list, number_of_haplotypes, number_of_variants)
 }
 
-fn read_peak_in_reference_genome(chromosome: &str, peak: &Range, reference_genome: &mut bio::io::fasta::IndexedReader<std::fs::File>)-> Vec<NucleotidePos> {
-    reference_genome.fetch(chromosome, peak.start, peak.end - 1).expect("Error while seeking in reference genome file");
+fn read_peak_in_reference_genome(chromosome: String, peak: &Range, reference_genome: &mut bio::io::fasta::IndexedReader<std::fs::File>)-> Vec<NucleotidePos> {
+    reference_genome.fetch(&chromosome, peak.start, peak.end - 1).expect("Error while seeking in reference genome file");
     let mut text = Vec::new();
     reference_genome.read(&mut text).expect(&format!("Error while reading in reference genome file {}:{}-{}", chromosome, peak.start, peak.end));
     to_nucleotides_pos(&text, &peak)
@@ -120,8 +123,9 @@ fn read_peak_in_reference_genome(chromosome: &str, peak: &Range, reference_genom
 // cargo run --release -- -c chr1 -m 5 -i /home/seb/masters/topmed/source/TOPMed_dbGaP_20180710/dbGaP-12336/68779/topmed-dcc/exchange/phs000964_TOPMed_WGS_JHS/Combined_Study_Data/Genotypes/freeze.8/phased/freeze.8.chr1.pass_only.phased.bcf -b bed/Bcell-13.bed,bed/CD4-9.bed,bed/CD8-10.bed,bed/CLP-14.bed,bed/CMP-4.bed,bed/Erythro-15.bed,bed/GMP-5.bed,bed/HSC-1.bed,bed/LMPP-3.bed,bed/MCP.bed,bed/mDC.bed,bed/MEGA1.bed,bed/MEGA2.bed,bed/MEP-6.bed,bed/Mono-7.bed,bed/MPP-2.bed,bed/Nkcell-11.bed,bed/pDC.bed -o test2.gz -p /home/seb/masters/regu/dnamotifs/HOCOMOCOv11_full_pwms_HUMAN_mono.txt -n JUNB_HUMAN.H11MO.0.A,FOSL1_HUMAN.H11MO.0.A,FOSL2_HUMAN.H11MO.0.A,JDP2_HUMAN.H11MO.0.D,GATA1_HUMAN.H11MO.0.A,GATA2_HUMAN.H11MO.0.A,GATA3_HUMAN.H11MO.0.A,GATA4_HUMAN.H11MO.0.A,GATA5_HUMAN.H11MO.0.D,GATA6_HUMAN.H11MO.0.A,JUN_HUMAN.H11MO.0.A,JUND_HUMAN.H11MO.0.A,BATF_HUMAN.H11MO.0.A,ATF3_HUMAN.H11MO.0.A,BACH1_HUMAN.H11MO.0.A,BACH2_HUMAN.H11MO.0.A,NFE2_HUMAN.H11MO.0.A,CEBPA_HUMAN.H11MO.0.A,CEBPB_HUMAN.H11MO.0.A,CEBPD_HUMAN.H11MO.0.C,CEBPE_HUMAN.H11MO.0.A,CEBPG_HUMAN.H11MO.0.B,SPIB_HUMAN.H11MO.0.A,IRF8_HUMAN.H11MO.0.B,SPI1_HUMAN.H11MO.0.A,MESP1_HUMAN.H11MO.0.D,ID4_HUMAN.H11MO.0.D,HTF4_HUMAN.H11MO.0.A,ITF2_HUMAN.H11MO.0.C,STAT1_HUMAN.H11MO.0.A,STAT2_HUMAN.H11MO.0.A,SPIC_HUMAN.H11MO.0.D,CTCF_HUMAN.H11MO.0.A,IRF1_HUMAN.H11MO.0.A,DBP_HUMAN.H11MO.0.B,MAFK_HUMAN.H11MO.1.A,ATF4_HUMAN.H11MO.0.A,ASCL1_HUMAN.H11MO.0.A,ASCL2_HUMAN.H11MO.0.D,TFE2_HUMAN.H11MO.0.A,MYOD1_HUMAN.H11MO.0.A,EVI1_HUMAN.H11MO.0.B,IRF3_HUMAN.H11MO.0.B,ZEB1_HUMAN.H11MO.0.A,IRF9_HUMAN.H11MO.0.C,HEN1_HUMAN.H11MO.0.C,LYL1_HUMAN.H11MO.0.A -t /home/seb/masters/regu/dnamotifs/hocomoco_thresholds.tab -r /home/seb/masters/hg38.fa
 
 fn main() {
-    let opt_matches = App::new("VCF_PWM")
-                        .version("1.0")
+    let app = App::new("VCF_PWM");
+    let opt_matches: clap::ArgMatches<'static> =
+                        app.version("1.0")
                         .author("Sébastian Méric de Bellefon <arnaudpourseb@gmail.com>")
                         .about("Find patterns in a VCF file")
                         .arg(Arg::with_name("chromosome")        .short("c").required(true) .takes_value(true) .value_name("CHROM")              .long("chromosome")             .help("Chromosome to scan. Ex: 'chr1'"))
@@ -142,10 +146,10 @@ fn main() {
                         .arg(Arg::with_name("0_vs_n")                       .required(false).takes_value(false)                                  .long("0_vs_n")                 .help("Encode the presence/absence of at least one motif on each allele"))
                         .get_matches();
 
-    let chromosome               = opt_matches.value_of("chromosome").unwrap();                     //1
-    let bcf                      = opt_matches.value_of("bcf").unwrap();                            //format!("/home/seb/masters/topmed/source/TOPMed_dbGaP_20180710/dbGaP-12336/65066/topmed-dcc/exchange/phs000964_TOPMed_WGS_JHS/Combined_Study_Data/Genotypes/freeze.6a/phased/freeze.6a.{}.pass_only.phased.bcf", chromosome);
+    let chromosome               = opt_matches.value_of("chromosome").unwrap().to_string();         //1
+    let bcf                      = opt_matches.value_of("bcf").unwrap().to_string();                 //format!("/home/seb/masters/topmed/source/TOPMed_dbGaP_20180710/dbGaP-12336/65066/topmed-dcc/exchange/phs000964_TOPMed_WGS_JHS/Combined_Study_Data/Genotypes/freeze.6a/phased/freeze.6a.{}.pass_only.phased.bcf", chromosome);
     let bed_files: Vec<&str>     = opt_matches.value_of("bed_files").unwrap().split(',').collect(); //bed/Bcell-13.bed,bed/CD4-9.bed,bed/CD8-10.bed,bed/CLP-14.bed,bed/CMP-4.bed,bed/Erythro-15.bed,bed/GMP-5.bed,bed/HSC-1.bed,bed/LMPP-3.bed,bed/MCP.bed,bed/mDC.bed,bed/MEGA1.bed,bed/MEGA2.bed,bed/MEP-6.bed,bed/Mono-7.bed,bed/MPP-2.bed,bed/Nkcell-11.bed,bed/pDC.bed
-    let reference_genome_file    = opt_matches.value_of("ref").unwrap();                            //"/home/seb/masters/hg38.fa";
+    let reference_genome_file    = opt_matches.value_of("ref").unwrap().to_string();                //"/home/seb/masters/hg38.fa";
     let pwm_file                 = opt_matches.value_of("pwm_file").unwrap();                       //"/home/seb/masters/regu/dnamotifs/HOCOMOCOv11_full_pwms_HUMAN_mono.txt";
     let pwm_threshold_directory  = opt_matches.value_of("pwm_threshold_dir").unwrap();        //"thresholds";
     let pwm_threshold: f32       = match opt_matches.value_of("pwm_threshold") {
@@ -162,10 +166,13 @@ fn main() {
     };
     let mode_0_vs_n              = opt_matches.is_present("0_vs_n");
 
-    if let Some(s) = opt_matches.value_of("threads") {
-        let n = s.to_string().parse().expect("Cannot parse thread number");
-        if n<1 { panic!("Wrong number of threads"); } else { rayon::ThreadPoolBuilder::new().num_threads(n).build_global().expect("Couldn't build the thread pool"); }
-    }
+    let threads = match opt_matches.value_of("threads") {
+        Some(s) => {
+            let n = s.to_string().parse().expect("Cannot parse thread number");
+            if n<1 { panic!("Wrong number of threads"); } else { rayon::ThreadPoolBuilder::new().num_threads(n).build_global().expect("Couldn't build the thread pool"); n }
+        },
+        None => {1}
+    };
 
     let after_position: u64 =
         match opt_matches.value_of("after_position") {
@@ -185,15 +192,16 @@ fn main() {
         pwm_name_dict.insert(pwm.pattern_id, pwm.name.clone());
     }
 
-    let (merged_peaks, peak_map) = load_peak_files(&bed_files, chromosome, after_position);
+    let (merged_peaks, peak_map) = load_peak_files(&bed_files, &chromosome, after_position);
 
     let (tx, rx): (Sender<String>, Receiver<String>) = mpsc::channel();
+    let (peak_tx, peak_rx) = multiqueue::broadcast_queue(100000);//::channel(); //(multiqueue::MPMCSender<Range>, multiqueue::MPMCSender<Range>)
 
     let _writer_thread = thread::spawn(move || {
         let mut writer = BGzWriter::new(BufWriter::with_capacity(4096*1000,fs::File::create(output_file.clone() + ".part").expect("Could not create output file")));
         loop {
             match rx.recv() {
-                Ok(s) => { /*if s.contains("GATA1") {println!("Some GATA1"); };*/ writer.write(s.as_bytes()).expect("Could not write bytes to output file"); }
+                Ok(s) => { /*if s.contains("GATA1") {println!("Some GATA1"); };*/ /*println!("Some");*/ writer.write(s.as_bytes()).expect("Could not write bytes to output file"); }
                 Err(_) => { let _ = writer.flush(); break; }
             }
         };
@@ -209,10 +217,10 @@ fn main() {
         println!("End of writer");
     });
 
-    let mut reader = IndexedReader::from_path(bcf).expect("Error while opening the bcf file");
+    let mut reader = IndexedReader::from_path(&bcf).expect("Error while opening the bcf file");
     let bcf_samples = get_sample_names(&mut reader);
     let bcf_samples_length = bcf_samples.len();
-    let number_of_peaks = &merged_peaks.len();
+    let number_of_peaks: usize = merged_peaks.len();
 
     let (samples, sample_positions_in_bcf): (Vec<String>, Vec<usize>) = {
         match opt_matches.value_of("samples") {
@@ -248,73 +256,193 @@ fn main() {
     // A fake and unique position in the chromosome given for each line in the resulting vcf
     let fake_position: Arc<Mutex<u32>> = Arc::new(Mutex::new(1));
     let number_of_peaks_processed: Arc<Mutex<u32>> = Arc::new(Mutex::new(0));
-    let chr = String::from(chromosome).replace("chr", "");
 
     let start_time = SystemTime::now();
 
-    merged_peaks.into_par_iter().for_each_with(tx, |txx, peak| {
-        let peak_start_time = SystemTime::now();
+    for peak in merged_peaks {
+        peak_tx.try_send(peak).unwrap();
+    }
 
-        let mut reader = IndexedReader::from_path(bcf).expect("Error while opening the bcf file");
 
-        let mut reference_genome = bio::io::fasta::IndexedReader::from_file(&Path::new(reference_genome_file.clone())).expect(&format!("Error while opening the reference genome '{}'", reference_genome_file));
-
-        let ref_haplotype = read_peak_in_reference_genome(chromosome, &peak, &mut reference_genome);
-
-        let inner_peaks: HashMap<&String, Vec<&Range>> = select_inner_peaks(peak, &peak_map);
-
-        let (match_list, number_of_haplotypes, number_of_variants) = find_all_matches(chromosome, &peak, &mut reader, &ref_haplotype, &pwm_list, all_haplotypes_with_reference_genome.clone(), &sample_positions_in_bcf);
-
-        for ((source, inner_peak, pattern_id),(v1,v2)) in count_matches_by_sample(&match_list, &inner_peaks, &null_count).drain() {
-            let pwm_name = pwm_name_dict.get(&pattern_id).expect("Logic error: No pattern name for a pattern_id");
-            let id_str = format!("{},{},{}-{}",source, pwm_name, inner_peak.start, inner_peak.end);
-
-            if mode_0_vs_n {
-                let mut genotypes = String::with_capacity(v1.len()*4);
-                let mut zero_count: u32 = 0;
-                let mut one_count: u32 = 0;
-                let mut two_count: u32 = 0;
-                for (&left, &right) in v1.iter().zip(v2.iter()) {
-                    let l = if left == 0 {0} else {1};
-                    let r = if right == 0 {0} else {1};
-                    let s = l + r;
-                    if s == 0 { genotypes.push_str("\t0|0"); zero_count += 1; }
-                    if s == 1 { genotypes.push_str("\t0|1"); one_count += 1; }
-                    if s == 2 { genotypes.push_str("\t1|1"); two_count += 1; }
-                }
-                let maf =
-                    if zero_count >= one_count && zero_count >= two_count {
-                        one_count + two_count
-                    }
-                    else if two_count >= zero_count && two_count >= one_count {
-                        zero_count + one_count
-                    }
-                    else { zero_count + two_count };
-                if zero_count > min_maf && maf > min_maf {
-                    let info_str = format!("freqs={}/{}/{}", zero_count, one_count, two_count);
-                    txx.send(format!("{}\t{}\t{}\t.\t.\t.\t.\t{}\tGT{}\n", chr, fake_position.lock().unwrap(), id_str, info_str, genotypes).to_string()).expect("Could not write result");
-                    *fake_position.lock().unwrap() += 1;
-                }
-            }
-            else {
-                let (distinct_counts, maf, freq0, freq1, freq2, genotypes) = counts_as_genotypes(v1, v2);
-                if maf >= min_maf && distinct_counts.len() > 1 {
-                    let distinct_counts_str: Vec<String> = distinct_counts.iter().map(|c| c.to_string()).collect();
-                    let info_str = format!("COUNTS={};freqs={}/{}/{}", distinct_counts_str.join(","), freq0, freq1, freq2);
-                    txx.send(format!("{}\t{}\t{}\t.\t.\t.\t.\t{}\tGT{}\n", chr, fake_position.lock().unwrap(), id_str, info_str, genotypes).to_string()).expect("Could not write result");
-                    *fake_position.lock().unwrap() += 1;
-                }
-            }
+    /*let txx = tx.clone();
+    let handler = thread::spawn(move ||{
+        for peak in peak_rx {
+                    process_peak(chromosome.clone(), &bcf, &reference_genome_file, peak, &peak_map, pwm_list.clone(),
+                                 sample_positions_in_bcf.clone(), null_count.clone(), pwm_name_dict.clone(),
+                                 mode_0_vs_n, min_maf, all_haplotypes_with_reference_genome.clone(), start_time.clone(), txx.clone(),
+                                 fake_position.clone(), number_of_peaks, number_of_peaks_processed.clone());
         }
-
-        let number_of_matches: u64 = match_list.iter().map(|m| m.haplotype_ids.len() as u64).sum();
-        let peak_time_elapsed = peak_start_time.elapsed().unwrap().as_millis();
-        let global_time_elapsed = start_time.elapsed().unwrap().as_millis();
-        *number_of_peaks_processed.lock().unwrap() += 1;
-        println!("Peak {}/{}\t{} ms ({} total)\t{}\t{}\t{} haplotypes\t{} variants\t{} matches", number_of_peaks_processed.lock().unwrap(), number_of_peaks, peak_time_elapsed, global_time_elapsed, peak.start, peak.end, number_of_haplotypes, number_of_variants, number_of_matches);
     });
 
-    let _ = _writer_thread.join();
+    handler.join();*/
+
+    let chromosome_arc = Arc::new(chromosome);
+    let bcf_arc = Arc::new(bcf);
+    let reference_genome_file_arc = Arc::new(reference_genome_file);
+    let peak_map_arc = Arc::new(peak_map);
+    let pwm_list_arc = Arc::new(pwm_list);
+
+    let sample_positions_in_bcf_arc = Arc::new(sample_positions_in_bcf);
+    let null_count_arc = Arc::new(null_count);
+    let pwm_name_dict_arc = Arc::new(pwm_name_dict);
+
+    let all_haplotypes_with_reference_genome_arc = Arc::new(all_haplotypes_with_reference_genome);
+
+
+    let mut handlers = vec![];
+    for _ in 1..threads {
+        let chromosome_here = Arc::clone(&chromosome_arc);
+        let bcf_here = Arc::clone(&bcf_arc);
+        let reference_genome_file_here = Arc::clone(&reference_genome_file_arc);
+        let peak_map_here = Arc::clone(&peak_map_arc);
+        let pwm_list_here = Arc::clone(&pwm_list_arc);
+
+        let sample_positions_in_bcf_here = Arc::clone(&sample_positions_in_bcf_arc);
+        let null_count_here = Arc::clone(&null_count_arc);
+        let pwm_name_dict_here = Arc::clone(&pwm_name_dict_arc);
+
+        let all_haplotypes_with_reference_genome_here = Arc::clone(&all_haplotypes_with_reference_genome_arc);
+
+        let peak_rxx = peak_rx.clone();
+
+
+
+        let handle = thread::spawn(|| {
+            //println!("BCF {}", "xx");
+            for peak in peak_rxx {
+                println!("{:?} {} {}", &chromosome_here, peak, bcf_here.to_string());
+                process_peak(&chromosome_here,
+                             &bcf_here,
+                             &reference_genome_file_here,
+                             peak,
+                             &peak_map_here,
+                             pwm_list_here.to_vec(),
+                             sample_positions_in_bcf_here.to_vec(),
+                             null_count_here.to_vec(),
+                             pwm_name_dict_here,
+                             mode_0_vs_n,
+                             min_maf,
+                             all_haplotypes_with_reference_genome_here,
+                             start_time.clone(), /*txxx.clone(),*/
+                             fake_position.clone(),
+                             number_of_peaks,
+                             number_of_peaks_processed.clone());
+            }
+        });
+        handlers.push(handle);
+    }
+
+    for thread in handlers {
+        thread.join();
+    }
+
+    /*let mut handlers = vec![];
+    //let chr_static = &chromosome;
+    let chr_arc = Arc::new(&chromosome);
+    //for _ in 1..threads {
+        //let txx = tx.clone();
+        let peak_rxx = peak_rx.clone();
+        let handler = thread::spawn(||{
+            //let c = chromosome.clone();
+            for peak in peak_rxx {
+                let chrr = chr_arc.clone();
+                process_peak(chrr, &bcf, &reference_genome_file, peak, &peak_map, pwm_list.clone(),
+                                sample_positions_in_bcf.clone(), null_count.clone(), pwm_name_dict.clone(),
+                                mode_0_vs_n, min_maf, all_haplotypes_with_reference_genome.clone(), start_time.clone(), /*txxx.clone(),*/
+                                fake_position.clone(), number_of_peaks, number_of_peaks_processed.clone());
+            }
+        });
+        handlers.push(handler);
+    //}
+
+    for handler in handlers {
+        let _ = handler.join();
+    }
+
+    let _ = _writer_thread.join();*/
+}
+
+/*struct {
+    pub chromosome: Arc<&String>,
+    pub bcf: &str,
+    pub reference_genome_file: &str,
+    pub peak_map: &HashMap<String, Vec<range::Range>>,
+    pub pwm_list: Vec<PWM>,
+    pub sample_positions_in_bcf: Vec<usize>,
+    pub null_count: Vec<u32>,
+    pub pwm_name_dict: HashMap<u16, String>,
+    pub mode_0_vs_n: bool,
+    pub min_maf: u32,
+    pub all_haplotypes_with_reference_genome: HashSet<HaplotypeId>,
+    pub start_time: SystemTime
+}*/
+
+fn process_peak(chromosome: &str, bcf: &str, reference_genome_file: &str, peak: Range, peak_map: &HashMap<String, Vec<range::Range>>,
+                pwm_list: Vec<PWM>, sample_positions_in_bcf: Vec<usize>,
+                null_count: Vec<u32>, pwm_name_dict: HashMap<u16, String>,mode_0_vs_n: bool, min_maf: u32,
+                all_haplotypes_with_reference_genome: HashSet<HaplotypeId>, start_time: SystemTime, /*txx: Sender<String>,*/
+                fake_position: Arc<Mutex<u32>>, number_of_peaks: usize, number_of_peaks_processed: Arc<Mutex<u32>>) -> () {
+    let peak_start_time = SystemTime::now();
+
+    let chr = chromosome.replace("chr", "");
+
+    let mut reader = IndexedReader::from_path(bcf).expect("Error while opening the bcf file");
+
+    let mut reference_genome = bio::io::fasta::IndexedReader::from_file(&Path::new(reference_genome_file.clone())).expect(&format!("Error while opening the reference genome '{}'", reference_genome_file));
+
+    let ref_haplotype = read_peak_in_reference_genome(chromosome.to_string(), &peak, &mut reference_genome);
+
+    let inner_peaks: HashMap<&String, Vec<&Range>> = select_inner_peaks(peak, &peak_map);
+
+    let (match_list, number_of_haplotypes, number_of_variants) = find_all_matches(&chromosome, &peak, &mut reader, &ref_haplotype, &pwm_list, all_haplotypes_with_reference_genome.clone(), &sample_positions_in_bcf);
+
+    for ((source, inner_peak, pattern_id),(v1,v2)) in count_matches_by_sample(&match_list, &inner_peaks, &null_count).drain() {
+        let pwm_name = pwm_name_dict.get(&pattern_id).expect("Logic error: No pattern name for a pattern_id");
+        let id_str = format!("{},{},{}-{}",source, pwm_name, inner_peak.start, inner_peak.end);
+
+        if mode_0_vs_n {
+            let mut genotypes = String::with_capacity(v1.len()*4);
+            let mut zero_count: u32 = 0;
+            let mut one_count: u32 = 0;
+            let mut two_count: u32 = 0;
+            for (&left, &right) in v1.iter().zip(v2.iter()) {
+                let l = if left == 0 {0} else {1};
+                let r = if right == 0 {0} else {1};
+                let s = l + r;
+                if s == 0 { genotypes.push_str("\t0|0"); zero_count += 1; }
+                if s == 1 { genotypes.push_str("\t0|1"); one_count += 1; }
+                if s == 2 { genotypes.push_str("\t1|1"); two_count += 1; }
+            }
+            let maf =
+                if zero_count >= one_count && zero_count >= two_count {
+                    one_count + two_count
+                }
+                else if two_count >= zero_count && two_count >= one_count {
+                    zero_count + one_count
+                }
+                else { zero_count + two_count };
+            if zero_count > min_maf && maf > min_maf {
+                let info_str = format!("freqs={}/{}/{}", zero_count, one_count, two_count);
+                //txx.send(format!("{}\t{}\t{}\t.\t.\t.\t.\t{}\tGT{}\n", chr, fake_position.lock().unwrap(), id_str, info_str, genotypes).to_string()).expect("Could not write result");
+                *fake_position.lock().unwrap() += 1;
+            }
+        }
+        else {
+            let (distinct_counts, maf, freq0, freq1, freq2, genotypes) = counts_as_genotypes(v1, v2);
+            if maf >= min_maf && distinct_counts.len() > 1 {
+                let distinct_counts_str: Vec<String> = distinct_counts.iter().map(|c| c.to_string()).collect();
+                let info_str = format!("COUNTS={};freqs={}/{}/{}", distinct_counts_str.join(","), freq0, freq1, freq2);
+                //txx.send(format!("{}\t{}\t{}\t.\t.\t.\t.\t{}\tGT{}\n", chr, fake_position.lock().unwrap(), id_str, info_str, genotypes).to_string()).expect("Could not write result");
+                *fake_position.lock().unwrap() += 1;
+            }
+        }
+    }
+
+    let number_of_matches: u64 = match_list.iter().map(|m| m.haplotype_ids.len() as u64).sum();
+    let peak_time_elapsed = peak_start_time.elapsed().unwrap().as_millis();
+    let global_time_elapsed = start_time.elapsed().unwrap().as_millis();
+    *number_of_peaks_processed.lock().unwrap() += 1;
+    println!("Peak {}/{}\t{} ms ({} total)\t{}\t{}\t{} haplotypes\t{} variants\t{} matches", number_of_peaks_processed.lock().unwrap(), number_of_peaks, peak_time_elapsed, global_time_elapsed, peak.start, peak.end, number_of_haplotypes, number_of_variants, number_of_matches);
 }
 
 
