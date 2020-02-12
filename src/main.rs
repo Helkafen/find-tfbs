@@ -1,6 +1,5 @@
 extern crate bgzip;
 extern crate clap;
-extern crate rayon;
 extern crate which;
 extern crate subprocess;
 extern crate multiqueue;
@@ -24,9 +23,6 @@ use std::sync::mpsc::{Sender, Receiver};
 use std::sync::mpsc;
 use std::thread;
 use std::sync::{Arc,Mutex};
-use rayon::prelude::*;
-
-
 
 use clap::{Arg, App};
 
@@ -169,7 +165,7 @@ fn main() {
     let threads = match opt_matches.value_of("threads") {
         Some(s) => {
             let n = s.to_string().parse().expect("Cannot parse thread number");
-            if n<1 { panic!("Wrong number of threads"); } else { rayon::ThreadPoolBuilder::new().num_threads(n).build_global().expect("Couldn't build the thread pool"); n }
+            if n<1 { panic!("Wrong number of threads"); } else { n }
         },
         None => {1}
     };
@@ -195,7 +191,7 @@ fn main() {
     let (merged_peaks, peak_map) = load_peak_files(&bed_files, &chromosome, after_position);
 
     let (tx, rx): (Sender<String>, Receiver<String>) = mpsc::channel();
-    let (peak_tx, peak_rx) = multiqueue::broadcast_queue(100000);//::channel(); //(multiqueue::MPMCSender<Range>, multiqueue::MPMCSender<Range>)
+    let (peak_tx, peak_rx) = multiqueue::broadcast_queue(100000);
 
     let _writer_thread = thread::spawn(move || {
         let mut writer = BGzWriter::new(BufWriter::with_capacity(4096*1000,fs::File::create(output_file.clone() + ".part").expect("Could not create output file")));
@@ -253,77 +249,45 @@ fn main() {
         tx.send(sample.clone()).expect("Could not create output file");
     }tx.send("\n".to_string()).expect("Could not create output file");
 
+
+    let start_time = SystemTime::now();
+
     // A fake and unique position in the chromosome given for each line in the resulting vcf
     let fake_position: Arc<Mutex<u32>> = Arc::new(Mutex::new(1));
     let number_of_peaks_processed: Arc<Mutex<u32>> = Arc::new(Mutex::new(0));
 
-    let start_time = SystemTime::now();
-
-    for peak in merged_peaks {
-        peak_tx.try_send(peak).unwrap();
-    }
-
-
-    /*let txx = tx.clone();
-    let handler = thread::spawn(move ||{
-        for peak in peak_rx {
-                    process_peak(chromosome.clone(), &bcf, &reference_genome_file, peak, &peak_map, pwm_list.clone(),
-                                 sample_positions_in_bcf.clone(), null_count.clone(), pwm_name_dict.clone(),
-                                 mode_0_vs_n, min_maf, all_haplotypes_with_reference_genome.clone(), start_time.clone(), txx.clone(),
-                                 fake_position.clone(), number_of_peaks, number_of_peaks_processed.clone());
-        }
-    });
-
-    handler.join();*/
-
-    let chromosome_arc = Arc::new(chromosome);
-    let bcf_arc = Arc::new(bcf);
-    let reference_genome_file_arc = Arc::new(reference_genome_file);
-    let peak_map_arc = Arc::new(peak_map);
-    let pwm_list_arc = Arc::new(pwm_list);
-
-    let sample_positions_in_bcf_arc = Arc::new(sample_positions_in_bcf);
-    let null_count_arc = Arc::new(null_count);
-    let pwm_name_dict_arc = Arc::new(pwm_name_dict);
-
-    let all_haplotypes_with_reference_genome_arc = Arc::new(all_haplotypes_with_reference_genome);
-
-
     let mut handlers = vec![];
     for _ in 1..threads {
-        let chromosome_here = Arc::clone(&chromosome_arc);
-        let bcf_here = Arc::clone(&bcf_arc);
-        let reference_genome_file_here = Arc::clone(&reference_genome_file_arc);
-        let peak_map_here = Arc::clone(&peak_map_arc);
-        let pwm_list_here = Arc::clone(&pwm_list_arc);
+        let chromosome                = Arc::new(chromosome.clone());
+        let bcf                       = Arc::new(bcf.clone());
+        let reference_genome_file     = Arc::new(reference_genome_file.clone());
+        let peak_map                  = Arc::new(peak_map.clone());
+        let pwm_list                  = Arc::new(pwm_list.clone());
+        let number_of_peaks_processed = number_of_peaks_processed.clone();
+        let sample_positions_in_bcf   = Arc::new(sample_positions_in_bcf.clone());
+        let null_count                = Arc::new(null_count.clone());
+        let pwm_name_dict             = Arc::new(pwm_name_dict.clone());
+        let fake_position             = fake_position.clone();
+        let tx                        = tx.clone();
+        let peak_rx                   = peak_rx.clone();
+        let all_haplotypes_with_reference_genome = Arc::new(all_haplotypes_with_reference_genome.clone());
 
-        let sample_positions_in_bcf_here = Arc::clone(&sample_positions_in_bcf_arc);
-        let null_count_here = Arc::clone(&null_count_arc);
-        let pwm_name_dict_here = Arc::clone(&pwm_name_dict_arc);
-
-        let all_haplotypes_with_reference_genome_here = Arc::clone(&all_haplotypes_with_reference_genome_arc);
-
-        let peak_rxx = peak_rx.clone();
-
-
-
-        let handle = thread::spawn(|| {
-            //println!("BCF {}", "xx");
-            for peak in peak_rxx {
-                println!("{:?} {} {}", &chromosome_here, peak, bcf_here.to_string());
-                process_peak(&chromosome_here,
-                             &bcf_here,
-                             &reference_genome_file_here,
+        let handle = thread::spawn(move || {
+            for peak in peak_rx {
+                process_peak(&chromosome,
+                             &bcf,
+                             &reference_genome_file,
                              peak,
-                             &peak_map_here,
-                             pwm_list_here.to_vec(),
-                             sample_positions_in_bcf_here.to_vec(),
-                             null_count_here.to_vec(),
-                             pwm_name_dict_here,
+                             &peak_map,
+                             &pwm_list,
+                             &sample_positions_in_bcf,
+                             &null_count,
+                             &pwm_name_dict,
                              mode_0_vs_n,
                              min_maf,
-                             all_haplotypes_with_reference_genome_here,
-                             start_time.clone(), /*txxx.clone(),*/
+                             &all_haplotypes_with_reference_genome,
+                             start_time,
+                             &tx,
                              fake_position.clone(),
                              number_of_peaks,
                              number_of_peaks_processed.clone());
@@ -332,55 +296,22 @@ fn main() {
         handlers.push(handle);
     }
 
+    for peak in merged_peaks {
+        let _ = peak_tx.try_send(peak).unwrap();
+    }
+    drop(peak_tx);
+
+
     for thread in handlers {
-        thread.join();
+        let _ = thread.join();
     }
 
-    /*let mut handlers = vec![];
-    //let chr_static = &chromosome;
-    let chr_arc = Arc::new(&chromosome);
-    //for _ in 1..threads {
-        //let txx = tx.clone();
-        let peak_rxx = peak_rx.clone();
-        let handler = thread::spawn(||{
-            //let c = chromosome.clone();
-            for peak in peak_rxx {
-                let chrr = chr_arc.clone();
-                process_peak(chrr, &bcf, &reference_genome_file, peak, &peak_map, pwm_list.clone(),
-                                sample_positions_in_bcf.clone(), null_count.clone(), pwm_name_dict.clone(),
-                                mode_0_vs_n, min_maf, all_haplotypes_with_reference_genome.clone(), start_time.clone(), /*txxx.clone(),*/
-                                fake_position.clone(), number_of_peaks, number_of_peaks_processed.clone());
-            }
-        });
-        handlers.push(handler);
-    //}
-
-    for handler in handlers {
-        let _ = handler.join();
-    }
-
-    let _ = _writer_thread.join();*/
 }
 
-/*struct {
-    pub chromosome: Arc<&String>,
-    pub bcf: &str,
-    pub reference_genome_file: &str,
-    pub peak_map: &HashMap<String, Vec<range::Range>>,
-    pub pwm_list: Vec<PWM>,
-    pub sample_positions_in_bcf: Vec<usize>,
-    pub null_count: Vec<u32>,
-    pub pwm_name_dict: HashMap<u16, String>,
-    pub mode_0_vs_n: bool,
-    pub min_maf: u32,
-    pub all_haplotypes_with_reference_genome: HashSet<HaplotypeId>,
-    pub start_time: SystemTime
-}*/
-
 fn process_peak(chromosome: &str, bcf: &str, reference_genome_file: &str, peak: Range, peak_map: &HashMap<String, Vec<range::Range>>,
-                pwm_list: Vec<PWM>, sample_positions_in_bcf: Vec<usize>,
-                null_count: Vec<u32>, pwm_name_dict: HashMap<u16, String>,mode_0_vs_n: bool, min_maf: u32,
-                all_haplotypes_with_reference_genome: HashSet<HaplotypeId>, start_time: SystemTime, /*txx: Sender<String>,*/
+                pwm_list: &Vec<PWM>, sample_positions_in_bcf: &Vec<usize>,
+                null_count: &Vec<u32>, pwm_name_dict: &HashMap<u16, String>, mode_0_vs_n: bool, min_maf: u32,
+                all_haplotypes_with_reference_genome: &HashSet<HaplotypeId>, start_time: SystemTime, txx: &Sender<String>,
                 fake_position: Arc<Mutex<u32>>, number_of_peaks: usize, number_of_peaks_processed: Arc<Mutex<u32>>) -> () {
     let peak_start_time = SystemTime::now();
 
@@ -394,9 +325,9 @@ fn process_peak(chromosome: &str, bcf: &str, reference_genome_file: &str, peak: 
 
     let inner_peaks: HashMap<&String, Vec<&Range>> = select_inner_peaks(peak, &peak_map);
 
-    let (match_list, number_of_haplotypes, number_of_variants) = find_all_matches(&chromosome, &peak, &mut reader, &ref_haplotype, &pwm_list, all_haplotypes_with_reference_genome.clone(), &sample_positions_in_bcf);
+    let (match_list, number_of_haplotypes, number_of_variants) = find_all_matches(&chromosome, &peak, &mut reader, &ref_haplotype, &*pwm_list, (*all_haplotypes_with_reference_genome).clone(), &*sample_positions_in_bcf);
 
-    for ((source, inner_peak, pattern_id),(v1,v2)) in count_matches_by_sample(&match_list, &inner_peaks, &null_count).drain() {
+    for ((source, inner_peak, pattern_id),(v1,v2)) in count_matches_by_sample(&match_list, &inner_peaks, &*null_count).drain() {
         let pwm_name = pwm_name_dict.get(&pattern_id).expect("Logic error: No pattern name for a pattern_id");
         let id_str = format!("{},{},{}-{}",source, pwm_name, inner_peak.start, inner_peak.end);
 
@@ -423,7 +354,7 @@ fn process_peak(chromosome: &str, bcf: &str, reference_genome_file: &str, peak: 
                 else { zero_count + two_count };
             if zero_count > min_maf && maf > min_maf {
                 let info_str = format!("freqs={}/{}/{}", zero_count, one_count, two_count);
-                //txx.send(format!("{}\t{}\t{}\t.\t.\t.\t.\t{}\tGT{}\n", chr, fake_position.lock().unwrap(), id_str, info_str, genotypes).to_string()).expect("Could not write result");
+                txx.send(format!("{}\t{}\t{}\t.\t.\t.\t.\t{}\tGT{}\n", chr, fake_position.lock().unwrap(), id_str, info_str, genotypes).to_string()).expect("Could not write result");
                 *fake_position.lock().unwrap() += 1;
             }
         }
@@ -432,7 +363,7 @@ fn process_peak(chromosome: &str, bcf: &str, reference_genome_file: &str, peak: 
             if maf >= min_maf && distinct_counts.len() > 1 {
                 let distinct_counts_str: Vec<String> = distinct_counts.iter().map(|c| c.to_string()).collect();
                 let info_str = format!("COUNTS={};freqs={}/{}/{}", distinct_counts_str.join(","), freq0, freq1, freq2);
-                //txx.send(format!("{}\t{}\t{}\t.\t.\t.\t.\t{}\tGT{}\n", chr, fake_position.lock().unwrap(), id_str, info_str, genotypes).to_string()).expect("Could not write result");
+                txx.send(format!("{}\t{}\t{}\t.\t.\t.\t.\t{}\tGT{}\n", chr, fake_position.lock().unwrap(), id_str, info_str, genotypes).to_string()).expect("Could not write result");
                 *fake_position.lock().unwrap() += 1;
             }
         }
