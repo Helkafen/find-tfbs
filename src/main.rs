@@ -369,12 +369,13 @@ fn process_peak(chromosome: &str, reader: &mut IndexedReader, reference_genome: 
             }
         }
         else {
-            let (distinct_counts, maf, freq0, freq1, freq2, genotypes) = counts_as_genotypes(v1, v2);
-            if maf >= min_maf && distinct_counts.len() > 1 {
-                let distinct_counts_str: Vec<String> = distinct_counts.iter().map(|c| c.to_string()).collect();
-                let info_str = format!("COUNTS={};freqs={}/{}/{}", distinct_counts_str.join(","), freq0, freq1, freq2);
-                txx.send(format!("{}\t{}\t{}\t.\t.\t.\t.\t{}\tGT{}\n", chr, fake_position.lock().unwrap(), id_str, info_str, genotypes).to_string()).expect("Could not write result");
-                *fake_position.lock().unwrap() += 1;
+            if let Some((distinct_counts, maf, freq0, freq1, freq2, genotypes)) = counts_as_genotypes(v1, v2) {
+                if maf >= min_maf {
+                    let distinct_counts_str: Vec<String> = distinct_counts.iter().map(|c| c.to_string()).collect();
+                    let info_str = format!("COUNTS={};freqs={}/{}/{}", distinct_counts_str.join(","), freq0, freq1, freq2);
+                    txx.send(format!("{}\t{}\t{}\t.\t.\t.\t.\t{}\tGT:DS{}\n", chr, fake_position.lock().unwrap(), id_str, info_str, genotypes).to_string()).expect("Could not write result");
+                    *fake_position.lock().unwrap() += 1;
+                }
             }
         }
     }
@@ -387,8 +388,8 @@ fn process_peak(chromosome: &str, reader: &mut IndexedReader, reference_genome: 
 }
 
 
-fn counts_as_genotypes(v1: Vec<u32>, v2: Vec<u32>) -> (Vec<u32>, u32, u32, u32, u32, String) {
-    // Sum the number of motifs on both alleles
+fn counts_as_genotypes(v1: Vec<u32>, v2: Vec<u32>) -> Option<(Vec<u32>, u32, u32, u32, u32, String)> {
+    // Sum of the number of TFBS on both alleles
     let v = {
         assert!(v1.len() == v2.len());
         let mut v = v1.clone();
@@ -397,42 +398,54 @@ fn counts_as_genotypes(v1: Vec<u32>, v2: Vec<u32>) -> (Vec<u32>, u32, u32, u32, 
         }
         v
     };
-    let mut res = String::with_capacity(v.len()*4);
+
     let min = v.iter().min();
     let max = v.iter().max();
+
     match (min, max) {
         (Some(&lowest), Some(&highest)) => {
-            let intermediate_1_1000 = (lowest * 1000 * 3 + highest * 1000    ) / 4;
-            let intermediate_3_1000 = (lowest * 1000     + highest * 1000 * 3) / 4;
-            let mut all_values = vec![lowest, highest];
-            let mut zero_count: u32 = 0;
-            let mut one_count: u32 = 0;
-            let mut two_count: u32 = 0;
-            for x in v {
-                if x == lowest {res.push_str("\t0|0"); zero_count += 1; }
-                else if x == highest {res.push_str("\t1|1"); two_count += 1; }
-                else {
-                    if !all_values.contains(&x) { all_values.push(x);}
-                    let x_1000 = x *1000;
-                    if x_1000 < intermediate_1_1000 { res.push_str("\t0|0"); zero_count += 1; }
-                    else if x_1000 < intermediate_3_1000 { res.push_str("\t0|1"); one_count += 1; }
-                    else { res.push_str("\t1|1"); two_count += 1; }
-                }
+            if lowest == highest {
+                None // No variation in the number of TFBS, so let's forget about this region
             }
-            let maf =
-                if zero_count >= one_count && zero_count >= two_count {
-                    one_count + two_count
+            else {
+                let mut res = String::with_capacity(v.len()*4);
+                let intermediate_1_1000 = (lowest * 1000 * 3 + highest * 1000    ) / 4;
+                let intermediate_3_1000 = (lowest * 1000     + highest * 1000 * 3) / 4;
+                let mut all_values = vec![lowest, highest];
+                let mut zero_count: u32 = 0;
+                let mut one_count: u32 = 0;
+                let mut two_count: u32 = 0;
+                let lowest_f32 = lowest as f32;
+                let spread_f32 = highest as f32 - lowest_f32;
+                for x in v {
+                    if x == lowest       { res.push_str("\t0|0:0.0"); zero_count += 1; }
+                    else if x == highest { res.push_str("\t1|1:2.0"); two_count += 1;  }
+                    else {
+                        if !all_values.contains(&x) { all_values.push(x);}
+                        let x_1000 = x *1000;
+                        if x_1000 < intermediate_1_1000 { res.push_str("\t0|0"); zero_count += 1; }
+                        else if x_1000 < intermediate_3_1000 { res.push_str("\t0|1"); one_count += 1; }
+                        else { res.push_str("\t1|1"); two_count += 1; }
+                        let pseudo_dosage = ((x as f32 - lowest_f32)*2.0)/ spread_f32; // Simulating a dosage, between 0 and 2. EMMAX accepts this field
+                        res.push_str(&format!(":{:.4}", pseudo_dosage));
+                    }
                 }
-                else if two_count >= zero_count && two_count >= one_count {
-                    zero_count + one_count
-                }
-                else { zero_count + two_count };
-            all_values.sort();
-            (all_values, maf, zero_count, one_count, two_count, res)
+                let maf =
+                    if zero_count >= one_count && zero_count >= two_count {
+                        one_count + two_count
+                    }
+                    else if two_count >= zero_count && two_count >= one_count {
+                        zero_count + one_count
+                    }
+                    else { zero_count + two_count };
+                all_values.sort();
+                Some((all_values, maf, zero_count, one_count, two_count, res))
+            }
         },
-        (None, _) => (Vec::new(), 0, 0, 0, 0, String::new()),
-        (_, None) => (Vec::new(), 0, 0, 0, 0, String::new()),
+        (None, _) => None,
+        (_, None) => None,
     }
+
 }
 
 fn count_matches_by_sample<'a>(match_list: &Vec<Match>, inner_peaks: &'a HashMap<&String, Vec<&Range>>, null_count: &Vec<u32>) -> HashMap<(&'a String, &'a Range, u16), (Vec<u32>,Vec<u32>)> {
