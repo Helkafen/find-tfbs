@@ -336,6 +336,7 @@ fn process_peak(chromosome: &str, reader: &mut IndexedReader, reference_genome: 
     let inner_peaks: HashMap<&String, Vec<&Range>> = select_inner_peaks(peak, &peak_map);
 
     let (match_list, number_of_haplotypes, number_of_variants) = find_all_matches(&chromosome, &peak, reader, &ref_haplotype, &*pwm_list, (*all_haplotypes_with_reference_genome).clone(), &*sample_positions_in_bcf);
+    //println!("find_all_matches done");
 
     for ((source, inner_peak, pattern_id),(v1,v2)) in count_matches_by_sample(&match_list, &inner_peaks, &*null_count).drain() {
         let pwm_name = pwm_name_dict.get(&pattern_id).expect("Logic error: No pattern name for a pattern_id");
@@ -371,11 +372,18 @@ fn process_peak(chromosome: &str, reader: &mut IndexedReader, reference_genome: 
         else {
             if let Some((distinct_counts, maf, freq0, freq1, freq2, genotypes)) = counts_as_genotypes(v1, v2) {
                 if maf >= min_maf {
+                    //println!("Good MAF ({})", maf);
                     let distinct_counts_str: Vec<String> = distinct_counts.iter().map(|c| c.to_string()).collect();
                     let info_str = format!("COUNTS={};freqs={}/{}/{}", distinct_counts_str.join(","), freq0, freq1, freq2);
                     txx.send(format!("{}\t{}\t{}\t.\t.\t.\t.\t{}\tGT:DS{}\n", chr, fake_position.lock().unwrap(), id_str, info_str, genotypes).to_string()).expect("Could not write result");
                     *fake_position.lock().unwrap() += 1;
                 }
+                else {
+                    //println!("Insuficient MAF ({})", maf);
+                }
+            }
+            else {
+                //println!("counts_as_genotypes failed");
             }
         }
     }
@@ -404,6 +412,7 @@ fn counts_as_genotypes(v1: Vec<u32>, v2: Vec<u32>) -> Option<(Vec<u32>, u32, u32
 
     match (min, max) {
         (Some(&lowest), Some(&highest)) => {
+            //println!("Min max {} {}", lowest, highest);
             if lowest == highest {
                 None // No variation in the number of TFBS, so let's forget about this region
             }

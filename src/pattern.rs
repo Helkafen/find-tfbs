@@ -125,9 +125,9 @@ fn apply_pwm(pwm: &PWM, haplotype: &[NucleotidePos]) -> i32 {
     return pwm.weights.iter().zip(haplotype.iter()).map(|(weight, nucleotide)| select_weight(weight,nucleotide)).sum();
 }
 
-//fn display_vec_nuc(vec: &Vec<Nucleotide>) -> String {
-//    vec.iter().fold(String::new(), |acc, &arg| acc + &arg.to_string())
-//}
+fn display_vec_nuc(vec: &Vec<Nucleotide>) -> String {
+    vec.iter().fold(String::new(), |acc, &arg| acc + &arg.to_string())
+}
 
 pub fn matches(pwm: &PWM, haplotype: &Vec<NucleotidePos>, haplotype_ids: Rc<Vec<HaplotypeId>>) -> Vec<Match> {
     let mut res = Vec::new();
@@ -136,8 +136,8 @@ pub fn matches(pwm: &PWM, haplotype: &Vec<NucleotidePos>, haplotype_ids: Rc<Vec<
         //println!("haplotype.len() >= pwm.weights.len() {} {} {}", haplotype.len(), pwm.weights.len(), pwm.name);
         for i in 0..(haplotype.len()-pwm.weights.len()+1) {
             let score = apply_pwm(&pwm, &haplotype[i..]);
-            //println!("score {} min_score {} name {}", score, pwm.min_score, pwm.name);
             if score > pwm.min_score {
+                //println!("score {} min_score {} name {} position {} direction {}", score, pwm.min_score, pwm.name, haplotype[i].pos, pwm.direction);
                 //println!("----- score {} min_score {}", score, pwm.min_score);
                 let m = Match { pos : haplotype[i].pos, pattern_id : pwm.pattern_id, haplotype_ids: haplotype_ids.clone() };
                 res.push(m);
