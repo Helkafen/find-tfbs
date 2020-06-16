@@ -1,5 +1,5 @@
 [package]
-name = "vcf_pwm"
+name = "find-tfbs"
 version = "0.1.0"
 authors = ["Sebastian Meric de Bellefon <sebastian.meric.de.bellefon@umontreal.ca>"]
 edition = "2018"
