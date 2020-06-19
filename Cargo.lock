@@ -414,6 +414,20 @@ version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
+name = "find-tfbs"
+version = "0.1.0"
+dependencies = [
+ "bgzip 0.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "bio 0.28.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "criterion 0.2.11 (registry+https://github.com/rust-lang/crates.io-index)",
+ "multiqueue 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rust-htslib 0.26.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "subprocess 0.1.18 (registry+https://github.com/rust-lang/crates.io-index)",
+ "which 2.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "fixedbitset"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1241,20 +1255,6 @@ dependencies = [
  "idna 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "matches 0.1.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "percent-encoding 2.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "vcf_pwm"
-version = "0.1.0"
-dependencies = [
- "bgzip 0.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "bio 0.28.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "criterion 0.2.11 (registry+https://github.com/rust-lang/crates.io-index)",
- "multiqueue 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "rust-htslib 0.26.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "subprocess 0.1.18 (registry+https://github.com/rust-lang/crates.io-index)",
- "which 2.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
