@@ -113,6 +113,18 @@ pub fn patch_haplotype(range: &Range, diffs: &Vec<Diff>, ref_haplotype: &Vec<Nuc
                 }
                 else if d.pos == ref_position && d.reference.len() == 1 { // SNV or insertion
                     let mut chunk = Vec::new();
+                    //println!("{} {:#?} {:#?}", range, ref_haplotype, d);
+                    //println!("assert {} == {}", d.reference[0], ref_haplotype[0].nuc);
+                    let reference_first_nuc_at = {
+                        let mut nuc = Nucleotide::N;
+                        for np in ref_haplotype {
+                            if np.pos == ref_position { nuc = np.nuc; }
+                        }
+                        nuc
+                    };
+                    if d.reference[0] != reference_first_nuc_at {
+                        panic!("First reference nucleotide of variant doesn't match reference genome: {:#?}", d);
+                    }
                     for i in &d.alternative {
                         chunk.push(NucleotidePos { pos: ref_position, nuc: i.clone() });
                     }
@@ -209,12 +221,12 @@ mod tests {
         let expected = vec![nucp('N',1), nucp('N',1), nucp('G',2)];
         assert_eq!(patched, expected);
 
-        let diffs2 = vec![Diff { pos: 2, reference: nucs("C"), alternative: nucs("NN") }];
+        let diffs2 = vec![Diff { pos: 2, reference: nucs("G"), alternative: nucs("NN") }];
         let patched2 = patch_haplotype(&Range::new(1,2), &diffs2, &ref_haplotype());
         let expected2 = vec![nucp('C',1), nucp('N',2), nucp('N',2)];
         assert_eq!(patched2, expected2);
 
-        let diffs3 = vec![Diff { pos: 3, reference: nucs("C"), alternative: nucs("NN") }];
+        let diffs3 = vec![Diff { pos: 3, reference: nucs("T"), alternative: nucs("NN") }];
         let patched3 = patch_haplotype(&Range::new(1,2), &diffs3, &ref_haplotype());
         let expected3 = vec![nucp('C',1), nucp('G',2)];
         assert_eq!(patched3, expected3);
