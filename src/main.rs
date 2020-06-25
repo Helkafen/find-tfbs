@@ -110,7 +110,7 @@ fn find_all_matches(chromosome: &str, peak: &Range, reader: &mut IndexedReader, 
 }
 
 fn read_peak_in_reference_genome(chromosome: String, peak: &Range, reference_genome: &mut bio::io::fasta::IndexedReader<std::fs::File>)-> Vec<NucleotidePos> {
-    reference_genome.fetch(&chromosome, peak.start, peak.end - 1).expect("Error while seeking in reference genome file");
+    reference_genome.fetch(&chromosome, peak.start, peak.end + 1).expect("Error while seeking in reference genome file");
     let mut text = Vec::new();
     reference_genome.read(&mut text).expect(&format!("Error while reading in reference genome file {}:{}-{}", chromosome, peak.start, peak.end));
     to_nucleotides_pos(&text, &peak)
