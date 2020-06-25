@@ -61,17 +61,6 @@ fn load_diffs(reader: &mut IndexedReader, sample_positions_in_bcf: &Vec<usize>) 
     (xs, variant_count)
 }
 
-/*fn has_alternative(genotype: &Genotype, side: HaplotypeSide) -> bool{
-    let index = match side {
-        HaplotypeSide::Left => 0,
-        HaplotypeSide::Right => 1,
-    };
-    match unsafe { genotype.get_unchecked(index) } {
-        GenotypeAllele::Phased(1) => true,
-        GenotypeAllele::Unphased(1) => true,
-        _ => false,
-    }
-}*/
 
 fn group_by_diffs(mut diffs: HashMap<HaplotypeId, Vec<Diff>>) -> HashMap<Vec<Diff>, Rc<Vec<HaplotypeId>>> {
     let mut res: HashMap<Vec<Diff>, Vec<HaplotypeId>> = HashMap::new();

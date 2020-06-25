@@ -125,9 +125,9 @@ fn apply_pwm(pwm: &PWM, haplotype: &[NucleotidePos]) -> i32 {
     return pwm.weights.iter().zip(haplotype.iter()).map(|(weight, nucleotide)| select_weight(weight,nucleotide)).sum();
 }
 
-fn display_vec_nuc(vec: &Vec<Nucleotide>) -> String {
-    vec.iter().fold(String::new(), |acc, &arg| acc + &arg.to_string())
-}
+//fn display_vec_nuc(vec: &Vec<Nucleotide>) -> String {
+//    vec.iter().fold(String::new(), |acc, &arg| acc + &arg.to_string())
+//}
 
 pub fn matches(pwm: &PWM, haplotype: &Vec<NucleotidePos>, haplotype_ids: Rc<Vec<HaplotypeId>>) -> Vec<Match> {
     let mut res = Vec::new();
@@ -145,7 +145,7 @@ pub fn matches(pwm: &PWM, haplotype: &Vec<NucleotidePos>, haplotype_ids: Rc<Vec<
         }
     }
     else {
-        println!("Haplotype too short for pwm {} vs {}", haplotype.len(), pwm.weights.len());
+        //println!("Haplotype too short for pwm {} vs {}", haplotype.len(), pwm.weights.len());
     }
     return res;
 }

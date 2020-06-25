@@ -52,3 +52,40 @@ fn simplify_peak_map(mut m: HashMap<String, Vec<range::Range>>) -> HashMap<Strin
     }
     res
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_merge_bed() {
+        let chromosome = "chr1";
+        let beds = vec!["test_data/regions1.bed", "test_data/regions2.bed"];
+        let (merged_ranges, range_map) = load_peak_files(&beds, &chromosome, 0);
+
+        assert_eq!(merged_ranges[0], range::Range::new(100, 115));
+        assert_eq!(merged_ranges[1], range::Range::new(118, 130));
+        assert_eq!(merged_ranges[2], range::Range::new(150, 160));
+        assert_eq!(merged_ranges[3], range::Range::new(161, 165));
+        assert_eq!(merged_ranges[4], range::Range::new(180, 210));
+
+        let expected = {
+            let mut ex = HashMap::new();
+            let region_1 = vec![range::Range::new(100,110),
+                                range::Range::new(120,130),
+                                range::Range::new(150,160),
+                                range::Range::new(180,190),
+                                range::Range::new(200,210)];
+            let region_2 = vec![range::Range::new(110,115),
+                                range::Range::new(118,125),
+                                range::Range::new(161,165),
+                                range::Range::new(190,200)];
+            ex.insert("regions1.bed".to_string(), region_1);
+            ex.insert("regions2.bed".to_string(), region_2);
+            ex
+        };
+        assert_eq!(range_map, expected);
+        assert_eq!(sum_peak_sizes(&merged_ranges), 71);
+    }
+}

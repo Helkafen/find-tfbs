@@ -21,7 +21,7 @@ impl Range {
     }
 
     pub fn contains(&self, point: u64) -> bool {
-        (point >= self.start && point <= self.end)
+        point >= self.start && point <= self.end
     }
 
     pub fn merge(&mut self, other: &Range) {
@@ -54,14 +54,6 @@ impl RangeStack {
     }
 }
 
-impl fmt::Display for RangeStack {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for range in &self.ranges {
-            write!(f, " {}", range).unwrap();
-        }
-        Ok(())
-    }
-}
 
 impl FromIterator<Range> for RangeStack {
     fn from_iter<I>(iterator: I) -> Self
@@ -87,5 +79,26 @@ impl<'a> FromIterator<&'a Range> for RangeStack {
         where I: IntoIterator<Item=&'a Range>
     {
         iterator.into_iter().cloned().collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Range;
+
+    #[test]
+    fn test_range_contains() {
+        let range = Range::new(100,110);
+        assert_eq!(range.contains(100), true);
+        assert_eq!(range.contains(105), true);
+        assert_eq!(range.contains(110), true);
+        assert_eq!(range.contains(99), false);
+        assert_eq!(range.contains(111), false);
+    }
+
+    #[test]
+    fn test_range_display() {
+        let range = Range::new(100,110);
+        assert_eq!(format!("{}", range), "[100,110]");
     }
 }

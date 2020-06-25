@@ -116,13 +116,11 @@ fn read_peak_in_reference_genome(chromosome: String, peak: &Range, reference_gen
     to_nucleotides_pos(&text, &peak)
 }
 
-// cargo run --release -- -c chr1 -m 5 -i /home/seb/masters/topmed/source/TOPMed_dbGaP_20180710/dbGaP-12336/68779/topmed-dcc/exchange/phs000964_TOPMed_WGS_JHS/Combined_Study_Data/Genotypes/freeze.8/phased/freeze.8.chr1.pass_only.phased.bcf -b bed/Bcell-13.bed,bed/CD4-9.bed,bed/CD8-10.bed,bed/CLP-14.bed,bed/CMP-4.bed,bed/Erythro-15.bed,bed/GMP-5.bed,bed/HSC-1.bed,bed/LMPP-3.bed,bed/MCP.bed,bed/mDC.bed,bed/MEGA1.bed,bed/MEGA2.bed,bed/MEP-6.bed,bed/Mono-7.bed,bed/MPP-2.bed,bed/Nkcell-11.bed,bed/pDC.bed -o test2.gz -p /home/seb/masters/regu/dnamotifs/HOCOMOCOv11_full_pwms_HUMAN_mono.txt -n JUNB_HUMAN.H11MO.0.A,FOSL1_HUMAN.H11MO.0.A,FOSL2_HUMAN.H11MO.0.A,JDP2_HUMAN.H11MO.0.D,GATA1_HUMAN.H11MO.0.A,GATA2_HUMAN.H11MO.0.A,GATA3_HUMAN.H11MO.0.A,GATA4_HUMAN.H11MO.0.A,GATA5_HUMAN.H11MO.0.D,GATA6_HUMAN.H11MO.0.A,JUN_HUMAN.H11MO.0.A,JUND_HUMAN.H11MO.0.A,BATF_HUMAN.H11MO.0.A,ATF3_HUMAN.H11MO.0.A,BACH1_HUMAN.H11MO.0.A,BACH2_HUMAN.H11MO.0.A,NFE2_HUMAN.H11MO.0.A,CEBPA_HUMAN.H11MO.0.A,CEBPB_HUMAN.H11MO.0.A,CEBPD_HUMAN.H11MO.0.C,CEBPE_HUMAN.H11MO.0.A,CEBPG_HUMAN.H11MO.0.B,SPIB_HUMAN.H11MO.0.A,IRF8_HUMAN.H11MO.0.B,SPI1_HUMAN.H11MO.0.A,MESP1_HUMAN.H11MO.0.D,ID4_HUMAN.H11MO.0.D,HTF4_HUMAN.H11MO.0.A,ITF2_HUMAN.H11MO.0.C,STAT1_HUMAN.H11MO.0.A,STAT2_HUMAN.H11MO.0.A,SPIC_HUMAN.H11MO.0.D,CTCF_HUMAN.H11MO.0.A,IRF1_HUMAN.H11MO.0.A,DBP_HUMAN.H11MO.0.B,MAFK_HUMAN.H11MO.1.A,ATF4_HUMAN.H11MO.0.A,ASCL1_HUMAN.H11MO.0.A,ASCL2_HUMAN.H11MO.0.D,TFE2_HUMAN.H11MO.0.A,MYOD1_HUMAN.H11MO.0.A,EVI1_HUMAN.H11MO.0.B,IRF3_HUMAN.H11MO.0.B,ZEB1_HUMAN.H11MO.0.A,IRF9_HUMAN.H11MO.0.C,HEN1_HUMAN.H11MO.0.C,LYL1_HUMAN.H11MO.0.A -t /home/seb/masters/regu/dnamotifs/hocomoco_thresholds.tab -r /home/seb/masters/hg38.fa
-
 fn main() {
-    let app = App::new("VCF_PWM");
+    let app = App::new("find-tfbs");
     let opt_matches: clap::ArgMatches<'static> =
                         app.version("1.0")
-                        .author("Sébastian Méric de Bellefon <arnaudpourseb@gmail.com>")
+                        .author("Sébastian Méric de Bellefon <sebastian.meric.de.bellefon@umontreal.ca>")
                         .about("Find patterns in a VCF file")
                         .arg(Arg::with_name("chromosome")        .short("c").required(true) .takes_value(true) .value_name("CHROM")              .long("chromosome")             .help("Chromosome to scan. Ex: 'chr1'"))
                         .arg(Arg::with_name("bcf")               .short("i").required(true) .takes_value(true) .value_name("IN")                 .long("input")                  .help("BCF input file to use"))
@@ -139,28 +137,26 @@ fn main() {
                         .arg(Arg::with_name("after_position")    .short("t").required(false).takes_value(true) .value_name("AFTER_POSITION")     .long("after_position")         .help("Only consider peaks that start after this position"))
                         .arg(Arg::with_name("samples")           .short("s").required(false).takes_value(true) .value_name("SAMPLES")            .long("samples")                .help("Samples file"))
                         .arg(Arg::with_name("tabix")             .short("z").required(false).takes_value(false)                                  .long("tabix")                  .help("Compress VCF with bgzip and tabix it"))
-                        .arg(Arg::with_name("0_vs_n")                       .required(false).takes_value(false)                                  .long("0_vs_n")                 .help("Encode the presence/absence of at least one motif on each allele"))
                         .get_matches();
 
-    let chromosome               = opt_matches.value_of("chromosome").unwrap().to_string();         //1
-    let bcf                      = opt_matches.value_of("bcf").unwrap().to_string();                 //format!("/home/seb/masters/topmed/source/TOPMed_dbGaP_20180710/dbGaP-12336/65066/topmed-dcc/exchange/phs000964_TOPMed_WGS_JHS/Combined_Study_Data/Genotypes/freeze.6a/phased/freeze.6a.{}.pass_only.phased.bcf", chromosome);
-    let bed_files: Vec<&str>     = opt_matches.value_of("bed_files").unwrap().split(',').collect(); //bed/Bcell-13.bed,bed/CD4-9.bed,bed/CD8-10.bed,bed/CLP-14.bed,bed/CMP-4.bed,bed/Erythro-15.bed,bed/GMP-5.bed,bed/HSC-1.bed,bed/LMPP-3.bed,bed/MCP.bed,bed/mDC.bed,bed/MEGA1.bed,bed/MEGA2.bed,bed/MEP-6.bed,bed/Mono-7.bed,bed/MPP-2.bed,bed/Nkcell-11.bed,bed/pDC.bed
-    let reference_genome_file    = opt_matches.value_of("ref").unwrap().to_string();                //"/home/seb/masters/hg38.fa";
-    let pwm_file                 = opt_matches.value_of("pwm_file").unwrap();                       //"/home/seb/masters/regu/dnamotifs/HOCOMOCOv11_full_pwms_HUMAN_mono.txt";
-    let pwm_threshold_directory  = opt_matches.value_of("pwm_threshold_dir").unwrap();        //"thresholds";
+    let chromosome               = opt_matches.value_of("chromosome").unwrap().to_string();
+    let bcf                      = opt_matches.value_of("bcf").unwrap().to_string();
+    let bed_files: Vec<&str>     = opt_matches.value_of("bed_files").unwrap().split(',').collect();
+    let reference_genome_file    = opt_matches.value_of("ref").unwrap().to_string();
+    let pwm_file                 = opt_matches.value_of("pwm_file").unwrap();
+    let pwm_threshold_directory  = opt_matches.value_of("pwm_threshold_dir").unwrap();
     let pwm_threshold: f32       = match opt_matches.value_of("pwm_threshold") {
         Some(s) => s.to_string().parse().expect("Cannot parse MAF"),
         None => panic!("No PWM threshold value"),
     };
-    let wanted_pwms: Vec<String> = opt_matches.value_of("pwm_names").unwrap().split(',').map(|s| s.to_string()).collect(); //"JUNB_HUMAN.H11MO.0.A,FOSL1_HUMAN.H11MO.0.A,FOSL2_HUMAN.H11MO.0.A,JDP2_HUMAN.H11MO.0.D,GATA1_HUMAN.H11MO.0.A,GATA2_HUMAN.H11MO.0.A,GATA3_HUMAN.H11MO.0.A,GATA4_HUMAN.H11MO.0.A,GATA5_HUMAN.H11MO.0.D,GATA6_HUMAN.H11MO.0.A,JUN_HUMAN.H11MO.0.A,JUND_HUMAN.H11MO.0.A,BATF_HUMAN.H11MO.0.A,ATF3_HUMAN.H11MO.0.A,BACH1_HUMAN.H11MO.0.A,BACH2_HUMAN.H11MO.0.A,NFE2_HUMAN.H11MO.0.A,CEBPA_HUMAN.H11MO.0.A,CEBPB_HUMAN.H11MO.0.A,CEBPD_HUMAN.H11MO.0.C,CEBPE_HUMAN.H11MO.0.A,CEBPG_HUMAN.H11MO.0.B,SPIB_HUMAN.H11MO.0.A,IRF8_HUMAN.H11MO.0.B,SPI1_HUMAN.H11MO.0.A,MESP1_HUMAN.H11MO.0.D,ID4_HUMAN.H11MO.0.D,HTF4_HUMAN.H11MO.0.A,ITF2_HUMAN.H11MO.0.C,STAT1_HUMAN.H11MO.0.A,STAT2_HUMAN.H11MO.0.A,SPIC_HUMAN.H11MO.0.D,CTCF_HUMAN.H11MO.0.A,IRF1_HUMAN.H11MO.0.A,DBP_HUMAN.H11MO.0.B,MAFK_HUMAN.H11MO.1.A,ATF4_HUMAN.H11MO.0.A,ASCL1_HUMAN.H11MO.0.A,ASCL2_HUMAN.H11MO.0.D,TFE2_HUMAN.H11MO.0.A,MYOD1_HUMAN.H11MO.0.A,EVI1_HUMAN.H11MO.0.B,IRF3_HUMAN.H11MO.0.B,ZEB1_HUMAN.H11MO.0.A,IRF9_HUMAN.H11MO.0.C,HEN1_HUMAN.H11MO.0.C,LYL1_HUMAN.H11MO.0.A".split(',').into_iter().map(|a| a.to_string()).collect();
-    let output_file              = opt_matches.value_of("output").unwrap().to_string();             //"test2.gz";
+    let wanted_pwms: Vec<String> = opt_matches.value_of("pwm_names").unwrap().split(',').map(|s| s.to_string()).collect();
+    let output_file              = opt_matches.value_of("output").unwrap().to_string();
     let forward_only: bool       = opt_matches.is_present("forward_only");
     let run_tabix: bool          = opt_matches.is_present("tabix");
     let min_maf: u32             = match opt_matches.value_of("min_maf") {
         Some(s) => s.to_string().parse().expect("Cannot parse MAF"),
         None => 0,
     };
-    let mode_0_vs_n              = opt_matches.is_present("0_vs_n");
 
     let threads = match opt_matches.value_of("threads") {
         Some(s) => {
@@ -180,6 +176,16 @@ fn main() {
         which::which("bgzip").ok().expect("bgzip cannot in found in PATH");
         which::which("tabix").ok().expect("tabix cannot in found in PATH");
     }
+
+    let wanted_samples = opt_matches.value_of("samples");
+
+    run(chromosome, bcf, bed_files, reference_genome_file, wanted_samples, pwm_file, pwm_threshold_directory, pwm_threshold, wanted_pwms, output_file, forward_only, run_tabix, min_maf, threads, after_position);
+
+    println!("End.");
+}
+
+fn run(chromosome: String, bcf: String, bed_files: Vec<&str>, reference_genome_file: String, wanted_samples: Option<&str>, pwm_file: &str, pwm_threshold_directory: &str, pwm_threshold: f32,
+        wanted_pwms: Vec<String>, output_file: String, forward_only: bool, run_tabix: bool, min_maf: u32, threads: u32, after_position: u64) {
 
     let pwm_list: Vec<PWM> = parse_pwm_files(pwm_file, pwm_threshold_directory, pwm_threshold, wanted_pwms, !forward_only);
     let mut pwm_name_dict = HashMap::new();
@@ -229,7 +235,7 @@ fn main() {
 
         // Find the individuals and their column number in the BCF file
         let (samples, sample_positions_in_bcf): (Vec<String>, Vec<usize>) = {
-            match opt_matches.value_of("samples") {
+            match wanted_samples {
             None => (bcf_samples, (0..bcf_samples_len).into_iter().collect()),
             Some(f) => {
                     let input = File::open(f).expect(&format!("Could not open sample file {}", f));
@@ -292,7 +298,6 @@ fn main() {
                                  &sample_positions_in_bcf,
                                  &null_count,
                                  &pwm_name_dict,
-                                 mode_0_vs_n,
                                  min_maf,
                                  &all_haplotypes_with_reference_genome,
                                  start_time,
@@ -324,7 +329,7 @@ fn main() {
 
 fn process_peak(chromosome: &str, reader: &mut IndexedReader, reference_genome: &mut bio::io::fasta::IndexedReader<std::fs::File>, peak: Range, peak_map: &HashMap<String, Vec<range::Range>>,
                 pwm_list: &Vec<PWM>, sample_positions_in_bcf: &Vec<usize>,
-                null_count: &Vec<u32>, pwm_name_dict: &HashMap<u16, String>, mode_0_vs_n: bool, min_maf: u32,
+                null_count: &Vec<u32>, pwm_name_dict: &HashMap<u16, String>, min_maf: u32,
                 all_haplotypes_with_reference_genome: &HashSet<HaplotypeId>, start_time: SystemTime, txx: &Sender<String>,
                 fake_position: Arc<Mutex<u32>>, number_of_peaks: usize, number_of_peaks_processed: Arc<Mutex<u32>>) -> () {
     let peak_start_time = SystemTime::now();
@@ -336,54 +341,17 @@ fn process_peak(chromosome: &str, reader: &mut IndexedReader, reference_genome: 
     let inner_peaks: HashMap<&String, Vec<&Range>> = select_inner_peaks(peak, &peak_map);
 
     let (match_list, number_of_haplotypes, number_of_variants) = find_all_matches(&chromosome, &peak, reader, &ref_haplotype, &*pwm_list, (*all_haplotypes_with_reference_genome).clone(), &*sample_positions_in_bcf);
-    //println!("find_all_matches done");
 
     for ((source, inner_peak, pattern_id),(v1,v2)) in count_matches_by_sample(&match_list, &inner_peaks, &*null_count).drain() {
         let pwm_name = pwm_name_dict.get(&pattern_id).expect("Logic error: No pattern name for a pattern_id");
         let id_str = format!("{},{},{}-{}",source, pwm_name, inner_peak.start, inner_peak.end);
 
-        if mode_0_vs_n {
-            let mut genotypes = String::with_capacity(v1.len()*4);
-            let mut zero_count: u32 = 0;
-            let mut one_count: u32 = 0;
-            let mut two_count: u32 = 0;
-            for (&left, &right) in v1.iter().zip(v2.iter()) {
-                let l = if left == 0 {0} else {1};
-                let r = if right == 0 {0} else {1};
-                let s = l + r;
-                if s == 0 { genotypes.push_str("\t0|0"); zero_count += 1; }
-                if s == 1 { genotypes.push_str("\t0|1"); one_count += 1; }
-                if s == 2 { genotypes.push_str("\t1|1"); two_count += 1; }
-            }
-            let maf =
-                if zero_count >= one_count && zero_count >= two_count {
-                    one_count + two_count
-                }
-                else if two_count >= zero_count && two_count >= one_count {
-                    zero_count + one_count
-                }
-                else { zero_count + two_count };
-            if zero_count > min_maf && maf > min_maf {
-                let info_str = format!("freqs={}/{}/{}", zero_count, one_count, two_count);
-                txx.send(format!("{}\t{}\t{}\t.\t.\t.\t.\t{}\tGT{}\n", chr, fake_position.lock().unwrap(), id_str, info_str, genotypes).to_string()).expect("Could not write result");
+        if let Some((distinct_counts, maf, freq0, freq1, freq2, genotypes)) = counts_as_genotypes(v1, v2) {
+            if maf >= min_maf {
+                let distinct_counts_str: Vec<String> = distinct_counts.iter().map(|c| c.to_string()).collect();
+                let info_str = format!("COUNTS={};freqs={}/{}/{}", distinct_counts_str.join(","), freq0, freq1, freq2);
+                txx.send(format!("{}\t{}\t{}\t.\t.\t.\t.\t{}\tGT:DS{}\n", chr, fake_position.lock().unwrap(), id_str, info_str, genotypes).to_string()).expect("Could not write result");
                 *fake_position.lock().unwrap() += 1;
-            }
-        }
-        else {
-            if let Some((distinct_counts, maf, freq0, freq1, freq2, genotypes)) = counts_as_genotypes(v1, v2) {
-                if maf >= min_maf {
-                    //println!("Good MAF ({})", maf);
-                    let distinct_counts_str: Vec<String> = distinct_counts.iter().map(|c| c.to_string()).collect();
-                    let info_str = format!("COUNTS={};freqs={}/{}/{}", distinct_counts_str.join(","), freq0, freq1, freq2);
-                    txx.send(format!("{}\t{}\t{}\t.\t.\t.\t.\t{}\tGT:DS{}\n", chr, fake_position.lock().unwrap(), id_str, info_str, genotypes).to_string()).expect("Could not write result");
-                    *fake_position.lock().unwrap() += 1;
-                }
-                else {
-                    //println!("Insuficient MAF ({})", maf);
-                }
-            }
-            else {
-                //println!("counts_as_genotypes failed");
             }
         }
     }
@@ -492,4 +460,41 @@ fn count_matches_by_sample<'a>(match_list: &Vec<Match>, inner_peaks: &'a HashMap
         }
     }
     pppp
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn wd() -> String {
+        let current_dir = std::env::current_dir().unwrap();
+        let current_dir_str = current_dir.as_path().to_str().unwrap();
+        current_dir_str.to_string()
+    }
+
+
+    #[test]
+    fn test_integration_no_polymorphism() {
+        run("chr1".to_string(), "test_data/genotypes.bcf".to_string(), vec!["test_data/regions1.bed","test_data/regions2.bed"], "test_data/reference_genome.fa".to_string(), 
+             Some("test_data/samples"),
+             "test_data/pwm_definitions.txt",
+             "test_data", 0.0001, vec!["ACGT".to_string()], "test_data/output1.vcf.gz".to_string(), false, false, 0, 1, 0);
+        let output = std::fs::read(format!("{}/test_data/output1.vcf.gz", wd())).expect("unable to read file");
+        let expected = std::fs::read(format!("{}/test_data/expected_output_1.vcf.gz", wd())).expect("unable to read file");
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_integration_one_polymorphism() {
+        run("chr1".to_string(), "test_data/genotypes2.bcf".to_string(), vec!["test_data/regions1.bed","test_data/regions2.bed"], "test_data/reference_genome.fa".to_string(), 
+             Some("test_data/samples"),
+             "test_data/pwm_definitions.txt",
+             "test_data", 0.0001, vec!["ACGT".to_string()], "test_data/output2.vcf.gz".to_string(), false, false, 0, 1, 0);
+        let output = std::fs::read(format!("{}/test_data/output2.vcf.gz", wd())).expect("unable to read file");
+        let expected = std::fs::read(format!("{}/test_data/expected_output_2.vcf.gz", wd())).expect("unable to read file");
+        assert_eq!(output, expected);
+    }
+
+
 }
