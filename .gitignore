@@ -1,3 +1,5 @@
 target
 *.gz
 *.stat
+HOCOMOCOv11_full_pwms_HUMAN_mono.txt
+thresholds
