@@ -21,7 +21,7 @@ The VCF can be used for association testing.
 
 ## How to build
 
-For a local computer, the following is sufficient:
+Install [rustup](https://www.rust-lang.org/tools/install), then run the following:
 
 ```console
 cargo build --release
