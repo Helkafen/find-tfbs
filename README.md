@@ -6,7 +6,7 @@ A tool to identify rare non-coding variants associated with complex human traits
 
 - Phased WGS data in the BCF format
 - Genomic coordinates of regions of interest (support for multiple region sets)
-- PWM of transcription factors from HOCOMOCO
+- PWM of transcription factors from [HOCOMOCO](https://hocomoco11.autosome.ru)
 
 ## VCF output sample
 
