@@ -48,7 +48,7 @@ pub struct HaplotypeId {
     pub side: HaplotypeSide
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Eq, Clone, PartialEq, Debug)]
 pub enum PWMDirection {
     P, N
 }
@@ -62,10 +62,13 @@ impl fmt::Display for PWMDirection {
     }
 }
 
-#[derive(Clone)]
-pub struct PWM { pub weights: Vec<Weight>, pub name: String, pub pattern_id: u16, pub min_score: i32, pub direction: PWMDirection }
+#[derive(Eq, PartialEq, Clone, Debug)]
+pub enum Pattern {
+     PWM { weights: Vec<Weight>, name: String, pattern_id: u16, min_score: i32, direction: PWMDirection },
+     OtherPattern {  name: String, pattern_id: u16 }
+}
 
-#[derive(Clone)]
+#[derive(Eq, PartialEq, Clone, Debug)]
 pub struct Weight {
     pub acgtn : Vec<i32>
 }

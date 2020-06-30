@@ -33,7 +33,7 @@ pub fn parse_threshold_file(filename: &String, pwm_threshold: f32) -> Option<i32
     return result;
 }
 
-pub fn parse_pwm_files(pwm_file: &str, threshold_dir: &str, pwm_threshold: f32, wanted_pwms: Vec<String>, add_reverse_patterns: bool) -> Vec<PWM> {
+pub fn parse_pwm_files(pwm_file: &str, threshold_dir: &str, pwm_threshold: f32, wanted_pwms: Vec<String>, add_reverse_patterns: bool) -> Vec<Pattern> {
 
     let thresholds = {
         let mut thresholds = HashMap::new();
@@ -69,10 +69,10 @@ pub fn parse_pwm_files(pwm_file: &str, threshold_dir: &str, pwm_threshold: f32, 
                         match thresholds.get(&name) {
                             None => { println!("Couldn't find a PWM threshold for {}", name); },
                             Some(&min_score) => {
-                                let pwm = PWM { weights: weights.clone(), name: name.clone(), pattern_id: pattern_id, min_score: min_score, direction: PWMDirection::P};
+                                let pwm = Pattern::PWM { weights: weights.clone(), name: name.clone(), pattern_id: pattern_id, min_score: min_score, direction: PWMDirection::P};
                                 pwms.push(pwm.clone());
                                 if add_reverse_patterns {
-                                    pwms.push(PWM { weights: reverse_complement(weights.clone()), direction: PWMDirection::N, ..pwm });
+                                    pwms.push(Pattern::PWM { weights: reverse_complement(weights.clone()), name: name.clone(), pattern_id: pattern_id, min_score: min_score, direction: PWMDirection::N });
                                 }
                                 println!("Loaded PWM {} (len {}, id {}, min_score {}) ", name, weights.len(), pattern_id, min_score);
                             }
@@ -121,33 +121,49 @@ fn select_weight(w: &Weight, n: &NucleotidePos) -> i32 {
     *x
 }
 
-fn apply_pwm(pwm: &PWM, haplotype: &[NucleotidePos]) -> i32 {
-    return pwm.weights.iter().zip(haplotype.iter()).map(|(weight, nucleotide)| select_weight(weight,nucleotide)).sum();
+fn apply_pwm(pattern: &Pattern, haplotype: &[NucleotidePos]) -> i32 {
+    match pattern {
+        Pattern::PWM{weights, name:_, pattern_id:_ , min_score:_ , direction:_} => {
+            return weights.iter().zip(haplotype.iter()).map(|(weight, nucleotide)| select_weight(weight,nucleotide)).sum();
+        }
+        Pattern::OtherPattern{name:_, pattern_id:_} => {
+            return 0;
+        }
+    }
+
 }
 
 //fn display_vec_nuc(vec: &Vec<Nucleotide>) -> String {
 //    vec.iter().fold(String::new(), |acc, &arg| acc + &arg.to_string())
 //}
 
-pub fn matches(pwm: &PWM, haplotype: &Vec<NucleotidePos>, haplotype_ids: Rc<Vec<HaplotypeId>>) -> Vec<Match> {
-    let mut res = Vec::new();
-    //println!("enter matches {} {}", haplotype.len(), pwm.weights.len());
-    if haplotype.len() >= pwm.weights.len() {
-        //println!("haplotype.len() >= pwm.weights.len() {} {} {}", haplotype.len(), pwm.weights.len(), pwm.name);
-        for i in 0..(haplotype.len()-pwm.weights.len()+1) {
-            let score = apply_pwm(&pwm, &haplotype[i..]);
-            if score > pwm.min_score {
-                //println!("score {} min_score {} name {} position {} direction {}", score, pwm.min_score, pwm.name, haplotype[i].pos, pwm.direction);
-                //println!("----- score {} min_score {}", score, pwm.min_score);
-                let m = Match { pos : haplotype[i].pos, pattern_id : pwm.pattern_id, haplotype_ids: haplotype_ids.clone() };
-                res.push(m);
+pub fn matches(pattern: &Pattern, haplotype: &Vec<NucleotidePos>, haplotype_ids: Rc<Vec<HaplotypeId>>) -> Vec<Match> {
+    match pattern {
+        Pattern::PWM{weights, name:_, pattern_id, min_score, direction:_} => {
+            let mut res = Vec::new();
+            //println!("enter matches {} {}", haplotype.len(), pwm.weights.len());
+            if haplotype.len() >= weights.len() {
+                //println!("haplotype.len() >= pwm.weights.len() {} {} {}", haplotype.len(), pwm.weights.len(), pwm.name);
+                for i in 0..(haplotype.len()-weights.len()+1) {
+                    let score = apply_pwm(&pattern, &haplotype[i..]);
+                    if score > *min_score {
+                        //println!("score {} min_score {} name {} position {} direction {}", score, pwm.min_score, pwm.name, haplotype[i].pos, pwm.direction);
+                        //println!("----- score {} min_score {}", score, pwm.min_score);
+                        let m = Match { pos : haplotype[i].pos, pattern_id : *pattern_id, haplotype_ids: haplotype_ids.clone() };
+                        res.push(m);
+                    }
+                }
             }
+            else {
+                //println!("Haplotype too short for pwm {} vs {}", haplotype.len(), pwm.weights.len());
+            }
+            return res;
+        }
+        Pattern::OtherPattern{name:_, pattern_id:_} => {
+            return Vec::new();
         }
     }
-    else {
-        //println!("Haplotype too short for pwm {} vs {}", haplotype.len(), pwm.weights.len());
-    }
-    return res;
+
 }
 
             //println!("i:{} hap:{} pwm:{}", i, haplotype.len(), pwm.weights.len());
@@ -173,25 +189,70 @@ mod tests {
     fn test_parse_pwm_files() {
         let pwms = parse_pwm_files("HOCOMOCOv11_full_pwms_HUMAN_mono.txt", "thresholds", 0.001, vec!["GATA1_HUMAN.H11MO.1.A".to_string(), "GATA2_HUMAN.H11MO.1.A".to_string()], true);
         assert_eq!(pwms.len(), 4);
-        assert_eq!(pwms[0].name, "GATA1_HUMAN.H11MO.1.A");
-        assert_eq!(pwms[1].name, "GATA1_HUMAN.H11MO.1.A");
-        assert_eq!(pwms[2].name, "GATA2_HUMAN.H11MO.1.A");
-        assert_eq!(pwms[3].name, "GATA2_HUMAN.H11MO.1.A");
+        assert_eq!(pwms[0], Pattern::PWM {weights: vec![Weight { acgtn: [322, -754, 193, -65, 0].to_vec() },
+                                                        Weight { acgtn: [-490, 565, 200, -898, 0].to_vec() },
+                                                        Weight { acgtn: [1022, -2694, -3126, 105, 0].to_vec() },
+                                                        Weight { acgtn: [-4400, -4400, 1375, -3903, 0].to_vec() },
+                                                        Weight { acgtn: [1377, -4400, -4400, -4400, 0].to_vec() },
+                                                        Weight { acgtn: [-3325, -3126, -4400, 1363, 0].to_vec() },
+                                                        Weight { acgtn: [1347, -3126, -3325, -2584, 0].to_vec() },
+                                                        Weight { acgtn: [1296, -3573, -1421, -2584, 0].to_vec() },
+                                                        Weight { acgtn: [-570, -357, 969, -2311, 0].to_vec() },
+                                                        Weight { acgtn: [393, -220, 304, -1022, 0].to_vec() },
+                                                        Weight { acgtn: [304, -144, 250, -705, 0].to_vec() }],
+                                          name: "GATA1_HUMAN.H11MO.1.A".to_string(),
+                                          pattern_id: 0,
+                                          min_score: 4683,
+                                          direction: PWMDirection::P});
 
-        assert_eq!(pwms[0].direction, PWMDirection::P);
-        assert_eq!(pwms[1].direction, PWMDirection::N);
-        assert_eq!(pwms[2].direction, PWMDirection::P);
-        assert_eq!(pwms[3].direction, PWMDirection::N);
+        assert_eq!(pwms[1], Pattern::PWM {weights: vec![Weight { acgtn: [-705, 250, -144, 304, 0].to_vec() },
+                                                        Weight { acgtn: [-1022, 304, -220, 393, 0].to_vec() },
+                                                        Weight { acgtn: [-2311, 969, -357, -570, 0].to_vec() },
+                                                        Weight { acgtn: [-2584, -1421, -3573, 1296, 0].to_vec() },
+                                                        Weight { acgtn: [-2584, -3325, -3126, 1347, 0].to_vec() },
+                                                        Weight { acgtn: [1363, -4400, -3126, -3325, 0].to_vec() },
+                                                        Weight { acgtn: [-4400, -4400, -4400, 1377, 0].to_vec() },
+                                                        Weight { acgtn: [-3903, 1375, -4400, -4400, 0].to_vec() },
+                                                        Weight { acgtn: [105, -3126, -2694, 1022, 0].to_vec() },
+                                                        Weight { acgtn: [-898, 200, 565, -490, 0].to_vec() },
+                                                        Weight { acgtn: [-65, 193, -754, 322, 0].to_vec() }],
+                                          name: "GATA1_HUMAN.H11MO.1.A".to_string(),
+                                          pattern_id: 0,
+                                          min_score: 4683,
+                                          direction: PWMDirection::N});
 
-        assert_eq!(pwms[0].pattern_id, 0);
-        assert_eq!(pwms[1].pattern_id, 0);
-        assert_eq!(pwms[2].pattern_id, 1);
-        assert_eq!(pwms[3].pattern_id, 1);
+        assert_eq!(pwms[2], Pattern::PWM {weights: vec![Weight { acgtn: [333, -754, 281, -210, 0].to_vec() },
+                                                        Weight { acgtn: [-415, 551, 327, -1525, 0].to_vec() },
+                                                        Weight { acgtn: [1093, -2961, -3325, -74, 0].to_vec() },
+                                                        Weight { acgtn: [-4400, -3903, 1371, -3573, 0].to_vec() },
+                                                        Weight { acgtn: [1355, -2694, -3325, -3903, 0].to_vec() },
+                                                        Weight { acgtn: [-2584, -1770, -1600, 1268, 0].to_vec() },
+                                                        Weight { acgtn: [1229, -1561, -2034, -1421, 0].to_vec() },
+                                                        Weight { acgtn: [1117, -2311, -291, -2311, 0].to_vec() },
+                                                        Weight { acgtn: [-516, -40, 814, -1681, 0].to_vec() },
+                                                        Weight { acgtn: [509, -357, 388, -1818, 0].to_vec() },
+                                                        Weight { acgtn: [509, -543, 91, -415, 0].to_vec() }],
+                                          name: "GATA2_HUMAN.H11MO.1.A".to_string(),
+                                          pattern_id: 1,
+                                          min_score: 5314,
+                                          direction: PWMDirection::P});
 
-        assert_eq!(pwms[0].min_score, 4683);
-        assert_eq!(pwms[1].min_score, 4683);
-        assert_eq!(pwms[2].min_score, 5314);
-        assert_eq!(pwms[3].min_score, 5314);
+
+        assert_eq!(pwms[3], Pattern::PWM {weights: vec![Weight { acgtn: [-415, 91, -543, 509, 0].to_vec() },
+                                                        Weight { acgtn: [-1818, 388, -357, 509, 0].to_vec() },
+                                                        Weight { acgtn: [-1681, 814, -40, -516, 0].to_vec() },
+                                                        Weight { acgtn: [-2311, -291, -2311, 1117, 0].to_vec() },
+                                                        Weight { acgtn: [-1421, -2034, -1561, 1229, 0].to_vec() },
+                                                        Weight { acgtn: [1268, -1600, -1770, -2584, 0].to_vec() },
+                                                        Weight { acgtn: [-3903, -3325, -2694, 1355, 0].to_vec() },
+                                                        Weight { acgtn: [-3573, 1371, -3903, -4400, 0].to_vec() },
+                                                        Weight { acgtn: [-74, -3325, -2961, 1093, 0].to_vec() },
+                                                        Weight { acgtn: [-1525, 327, 551, -415, 0].to_vec() },
+                                                        Weight { acgtn: [-210, 281, -754, 333, 0].to_vec() }],
+                                          name: "GATA2_HUMAN.H11MO.1.A".to_string(),
+                                          pattern_id: 1,
+                                          min_score: 5314,
+                                          direction: PWMDirection::N});
     }
 
     #[test]
@@ -204,7 +265,7 @@ mod tests {
     fn test_matches() {
         let c = Weight::new(0, 1000, 0, 0);
         let g = Weight::new(0, 0, 1000, 0);
-        let pwm = PWM {weights: vec![c,g], name: "pwm".to_string(), pattern_id: 5, min_score: 1500, direction: PWMDirection::P};
+        let pwm = Pattern::PWM {weights: vec![c,g], name: "pwm".to_string(), pattern_id: 5, min_score: 1500, direction: PWMDirection::P};
         let haplotype = vec![
             NucleotidePos { nuc: Nucleotide::A, pos: 10 },
             NucleotidePos { nuc: Nucleotide::C, pos: 11 },
@@ -219,7 +280,7 @@ mod tests {
 
     #[test]
     fn test_match_gataa() {
-        let pwm = PWM { weights: vec![Weight::new(0,0,100,0), Weight::new(100,0,0,0), Weight::new(0,0,0,100), Weight::new(100,0,0,0), Weight::new(100,0,0,0), ], name: "Example".to_string(), pattern_id: 123, min_score: 499, direction: PWMDirection::P };
+        let pwm = Pattern::PWM { weights: vec![Weight::new(0,0,100,0), Weight::new(100,0,0,0), Weight::new(0,0,0,100), Weight::new(100,0,0,0), Weight::new(100,0,0,0), ], name: "Example".to_string(), pattern_id: 123, min_score: 499, direction: PWMDirection::P };
         let haplotype_with_padding = vec![nucp('N',0), nucp('G',1), nucp('A',2), nucp('T',3), nucp('A',4), nucp('A',5), nucp('N',6)];
         let haplotype_without_padding = vec![nucp('G',1), nucp('A',2), nucp('T',3), nucp('A',4), nucp('A',5)];
         let haplotype_ids = Rc::new(vec![HaplotypeId { sample_id: 456, side: HaplotypeSide::Right }]);
@@ -228,7 +289,7 @@ mod tests {
         let ms2 = matches(&pwm, &haplotype_without_padding, haplotype_ids.clone());
         assert_eq!(ms2.len(), 1);
 
-        let pwm2 = PWM { weights: vec![Weight::new(0,0,100,0), Weight::new(100,0,0,0), Weight::new(0,0,0,100), Weight::new(100,0,0,0), Weight::new(100,0,0,0), ], name: "Example".to_string(), pattern_id: 123, min_score: 500, direction: PWMDirection::P };
+        let pwm2 = Pattern::PWM { weights: vec![Weight::new(0,0,100,0), Weight::new(100,0,0,0), Weight::new(0,0,0,100), Weight::new(100,0,0,0), Weight::new(100,0,0,0), ], name: "Example".to_string(), pattern_id: 123, min_score: 500, direction: PWMDirection::P };
         let ms3 = matches(&pwm2, &haplotype_with_padding, haplotype_ids.clone());
         assert_eq!(ms3.len(), 0);
         let ms4 = matches(&pwm2, &haplotype_without_padding, haplotype_ids.clone());

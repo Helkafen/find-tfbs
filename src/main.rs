@@ -80,7 +80,7 @@ fn all_haplotype_ids(sample_count: usize) -> HashSet<HaplotypeId> {
     x
 }
 
-fn find_all_matches(chromosome: &str, peak: &Range, reader: &mut IndexedReader, ref_haplotype: &Vec<NucleotidePos>, pwm_list: &Vec<PWM>, mut haplotypes_with_reference_genome: HashSet<HaplotypeId>, sample_positions_in_bcf:&Vec<usize>)
+fn find_all_matches(chromosome: &str, peak: &Range, reader: &mut IndexedReader, ref_haplotype: &Vec<NucleotidePos>, pwm_list: &Vec<Pattern>, mut haplotypes_with_reference_genome: HashSet<HaplotypeId>, sample_positions_in_bcf:&Vec<usize>)
                     -> (Vec<Match>, u32, u32) {
     let mut match_list = Vec::new();
     let mut number_of_haplotypes = 0;
@@ -187,11 +187,18 @@ fn main() {
 fn run(chromosome: String, bcf: String, bed_files: Vec<&str>, reference_genome_file: String, wanted_samples: Option<&str>, pwm_file: &str, pwm_threshold_directory: &str, pwm_threshold: f32,
         wanted_pwms: Vec<String>, output_file: String, forward_only: bool, run_tabix: bool, min_maf: u32, threads: u32, after_position: u64) {
 
-    let pwm_list: Vec<PWM> = parse_pwm_files(pwm_file, pwm_threshold_directory, pwm_threshold, wanted_pwms, !forward_only);
-    let mut pwm_name_dict = HashMap::new();
+    let pwm_list: Vec<Pattern> = parse_pwm_files(pwm_file, pwm_threshold_directory, pwm_threshold, wanted_pwms, !forward_only);
+    let mut pwm_name_dict: HashMap<u16, String> = HashMap::new();
     for pwm in &pwm_list {
-        println!("PWM {} {} {} {}", pwm.name, pwm.min_score, pwm.direction, pwm.weights.len());
-        pwm_name_dict.insert(pwm.pattern_id, pwm.name.clone());
+        match pwm {
+            Pattern::PWM{weights, name, pattern_id, min_score, direction} => {
+                println!("PWM {} {} {} {}", name, min_score, direction, weights.len());
+                pwm_name_dict.insert(*pattern_id, name.clone());
+            }
+            Pattern::OtherPattern{name, pattern_id} => {
+                pwm_name_dict.insert(*pattern_id, name.clone());
+            }
+        }
     }
 
     let (merged_peaks, peak_map) = load_peak_files(&bed_files, &chromosome, after_position);
@@ -328,7 +335,7 @@ fn run(chromosome: String, bcf: String, bed_files: Vec<&str>, reference_genome_f
 
 
 fn process_peak(chromosome: &str, reader: &mut IndexedReader, reference_genome: &mut bio::io::fasta::IndexedReader<std::fs::File>, peak: Range, peak_map: &HashMap<String, Vec<range::Range>>,
-                pwm_list: &Vec<PWM>, sample_positions_in_bcf: &Vec<usize>,
+                pwm_list: &Vec<Pattern>, sample_positions_in_bcf: &Vec<usize>,
                 null_count: &Vec<u32>, pwm_name_dict: &HashMap<u16, String>, min_maf: u32,
                 all_haplotypes_with_reference_genome: &HashSet<HaplotypeId>, start_time: SystemTime, txx: &Sender<String>,
                 fake_position: Arc<Mutex<u32>>, number_of_peaks: usize, number_of_peaks_processed: Arc<Mutex<u32>>) -> () {
