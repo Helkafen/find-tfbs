@@ -42,3 +42,18 @@ Install [rustup](https://www.rust-lang.org/tools/install), then run the followin
 ./build_static.sh
 ls target/x86_64-unknown-linux-musl/release/find-tfbs
 ```
+
+## Usage
+
+```console
+find-tfbs
+    --input chr12.bcf \
+    --chromosome 12 \
+    --bed Erythro.bed,Nkcell.bed \
+    --output output.vcf.gz \
+    --pwm_file HOCOMOCOv11_full_pwms_HUMAN_mono.txt \
+    --pwm_names GATA1_HUMAN.H11MO.1.A,GATA2_HUMAN.H11MO.1.A \
+    --pwm_threshold 0.0001 \
+    --pwm_threshold_directory thresholds \
+    --reference hg38.fa
+```
