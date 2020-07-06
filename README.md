@@ -21,7 +21,7 @@ The VCF can be used for association testing.
 
 ## How to build
 
-Install [rustup](https://www.rust-lang.org/tools/install), then run the following:
+Install [rustup](https://www.rust-lang.org/tools/install) and the clang package, then run the following:
 
 ```console
 cargo build --release
@@ -57,3 +57,10 @@ find-tfbs
     --pwm_threshold_directory thresholds \
     --reference hg38.fa
 ```
+
+
+## Adapting find-tfbs to use alternatives to PWMs
+
+The data type Pattern (in src/types.rs) can be a PWM or any other pattern type. You can extend this data type and write the corresponding matching algorithm in src/pattern.rs. You will also need to load pattern definitions from a file.
+
+find-tfbs can scan different kinds of patterns simultaneously. The only condition is that all patterns need to have a unique pattern\_id.
