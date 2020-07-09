@@ -21,7 +21,7 @@ The VCF can be used for association testing.
 
 ## How to build
 
-Install [rustup](https://www.rust-lang.org/tools/install) and the clang package, then run the following:
+Install [rustup](https://www.rust-lang.org/tools/install), and the clang compiler (using your package manager), then run the following in find-tfbs's root directory:
 
 ```console
 cargo build --release
@@ -36,7 +36,7 @@ ls target/release/find-tfbs
 
 ## How to build statically (to make find-tfbs portable to different computers)
 
-Install [rustup](https://www.rust-lang.org/tools/install), then run the following:
+Install [rustup](https://www.rust-lang.org/tools/install) and clang, then run the following:
 
 ```console
 ./build_static.sh
