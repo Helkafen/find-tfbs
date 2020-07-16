@@ -137,9 +137,9 @@ fn apply_pwm(pattern: &Pattern, haplotype: &[NucleotidePos]) -> i32 {
 //    vec.iter().fold(String::new(), |acc, &arg| acc + &arg.to_string())
 //}
 
-pub fn matches(pattern: &Pattern, haplotype: &Vec<NucleotidePos>, haplotype_ids: Rc<Vec<HaplotypeId>>) -> Vec<Match> {
+pub fn matches(pattern: &Pattern, haplotype: &Vec<NucleotidePos>, haplotype_ids: Rc<Vec<HaplotypeId>>, verbose: bool) -> Vec<Match> {
     match pattern {
-        Pattern::PWM{weights, name:_, pattern_id, min_score, direction:_} => {
+        Pattern::PWM{weights, name, pattern_id, min_score, direction} => {
             let mut res = Vec::new();
             //println!("enter matches {} {}", haplotype.len(), pwm.weights.len());
             if haplotype.len() >= weights.len() {
@@ -147,7 +147,9 @@ pub fn matches(pattern: &Pattern, haplotype: &Vec<NucleotidePos>, haplotype_ids:
                 for i in 0..(haplotype.len()-weights.len()+1) {
                     let score = apply_pwm(&pattern, &haplotype[i..]);
                     if score > *min_score {
-                        //println!("score {} min_score {} name {} position {} direction {}", score, pwm.min_score, pwm.name, haplotype[i].pos, pwm.direction);
+                        if verbose {
+                            println!("score {} min_score {} name {} position {} direction {}", score, min_score, name, haplotype[i].pos, direction);
+                        }
                         //println!("----- score {} min_score {}", score, pwm.min_score);
                         let m = Match { pos : haplotype[i].pos, pattern_id : *pattern_id, haplotype_ids: haplotype_ids.clone() };
                         res.push(m);
@@ -284,15 +286,15 @@ mod tests {
         let haplotype_with_padding = vec![nucp('N',0), nucp('G',1), nucp('A',2), nucp('T',3), nucp('A',4), nucp('A',5), nucp('N',6)];
         let haplotype_without_padding = vec![nucp('G',1), nucp('A',2), nucp('T',3), nucp('A',4), nucp('A',5)];
         let haplotype_ids = Rc::new(vec![HaplotypeId { sample_id: 456, side: HaplotypeSide::Right }]);
-        let ms = matches(&pwm, &haplotype_with_padding, haplotype_ids.clone());
+        let ms = matches(&pwm, &haplotype_with_padding, haplotype_ids.clone(), false);
         assert_eq!(ms.len(), 1);
-        let ms2 = matches(&pwm, &haplotype_without_padding, haplotype_ids.clone());
+        let ms2 = matches(&pwm, &haplotype_without_padding, haplotype_ids.clone(), false);
         assert_eq!(ms2.len(), 1);
 
         let pwm2 = Pattern::PWM { weights: vec![Weight::new(0,0,100,0), Weight::new(100,0,0,0), Weight::new(0,0,0,100), Weight::new(100,0,0,0), Weight::new(100,0,0,0), ], name: "Example".to_string(), pattern_id: 123, min_score: 500, direction: PWMDirection::P };
-        let ms3 = matches(&pwm2, &haplotype_with_padding, haplotype_ids.clone());
+        let ms3 = matches(&pwm2, &haplotype_with_padding, haplotype_ids.clone(), false);
         assert_eq!(ms3.len(), 0);
-        let ms4 = matches(&pwm2, &haplotype_without_padding, haplotype_ids.clone());
+        let ms4 = matches(&pwm2, &haplotype_without_padding, haplotype_ids.clone(), false);
         assert_eq!(ms4.len(), 0);
     }
 

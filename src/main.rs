@@ -80,7 +80,7 @@ fn all_haplotype_ids(sample_count: usize) -> HashSet<HaplotypeId> {
     x
 }
 
-fn find_all_matches(chromosome: &str, peak: &Range, reader: &mut IndexedReader, ref_haplotype: &Vec<NucleotidePos>, pwm_list: &Vec<Pattern>, mut haplotypes_with_reference_genome: HashSet<HaplotypeId>, sample_positions_in_bcf:&Vec<usize>)
+fn find_all_matches(chromosome: &str, peak: &Range, reader: &mut IndexedReader, ref_haplotype: &Vec<NucleotidePos>, pwm_list: &Vec<Pattern>, mut haplotypes_with_reference_genome: HashSet<HaplotypeId>, sample_positions_in_bcf:&Vec<usize>, verbose: bool)
                     -> (Vec<Match>, u32, u32) {
     let mut match_list = Vec::new();
     let mut number_of_haplotypes = 0;
@@ -92,7 +92,7 @@ fn find_all_matches(chromosome: &str, peak: &Range, reader: &mut IndexedReader, 
         }
         //println!("{} PWMs", pwm_list.len());
         for pwm in pwm_list {
-            match_list.extend(matches(pwm, &haplotype, haplotype_ids.clone()));
+            match_list.extend(matches(pwm, &haplotype, haplotype_ids.clone(),verbose));
         }
         number_of_haplotypes = number_of_haplotypes + 1;
     };
@@ -103,14 +103,14 @@ fn find_all_matches(chromosome: &str, peak: &Range, reader: &mut IndexedReader, 
         let x: Vec<HaplotypeId> = haplotypes_with_reference_genome.into_iter().collect();
         let hap_ids = Rc::new(x);
         for pwm in pwm_list {
-            match_list.extend(matches(pwm, &ref_haplotype, hap_ids.clone()));
+            match_list.extend(matches(pwm, &ref_haplotype, hap_ids.clone(),verbose));
         }
     }
     (match_list, number_of_haplotypes, number_of_variants)
 }
 
 fn read_peak_in_reference_genome(chromosome: String, peak: &Range, reference_genome: &mut bio::io::fasta::IndexedReader<std::fs::File>)-> Vec<NucleotidePos> {
-    reference_genome.fetch(&chromosome, peak.start, peak.end + 1).expect("Error while seeking in reference genome file");
+    reference_genome.fetch(&chromosome, peak.start, peak.end - 1).expect("Error while seeking in reference genome file");
     let mut text = Vec::new();
     reference_genome.read(&mut text).expect(&format!("Error while reading in reference genome file {}:{}-{}", chromosome, peak.start, peak.end));
     to_nucleotides_pos(&text, &peak)
@@ -137,6 +137,7 @@ fn main() {
                         .arg(Arg::with_name("after_position")    .short("t").required(false).takes_value(true) .value_name("AFTER_POSITION")     .long("after_position")         .help("Only consider peaks that start after this position"))
                         .arg(Arg::with_name("samples")           .short("s").required(false).takes_value(true) .value_name("SAMPLES")            .long("samples")                .help("Samples file"))
                         .arg(Arg::with_name("tabix")             .short("z").required(false).takes_value(false)                                  .long("tabix")                  .help("Compress VCF with bgzip and tabix it"))
+                        .arg(Arg::with_name("verbose")           .short("v").required(false).takes_value(false)                                  .long("verbose")                .help("Verbose log"))
                         .get_matches();
 
     let chromosome               = opt_matches.value_of("chromosome").unwrap().to_string();
@@ -179,13 +180,15 @@ fn main() {
 
     let wanted_samples = opt_matches.value_of("samples");
 
-    run(chromosome, bcf, bed_files, reference_genome_file, wanted_samples, pwm_file, pwm_threshold_directory, pwm_threshold, wanted_pwms, output_file, forward_only, run_tabix, min_maf, threads, after_position);
+    let verbose: bool       = opt_matches.is_present("verbose");
+
+    run(chromosome, bcf, bed_files, reference_genome_file, wanted_samples, pwm_file, pwm_threshold_directory, pwm_threshold, wanted_pwms, output_file, forward_only, run_tabix, min_maf, threads, after_position, verbose);
 
     println!("End.");
 }
 
 fn run(chromosome: String, bcf: String, bed_files: Vec<&str>, reference_genome_file: String, wanted_samples: Option<&str>, pwm_file: &str, pwm_threshold_directory: &str, pwm_threshold: f32,
-        wanted_pwms: Vec<String>, output_file: String, forward_only: bool, run_tabix: bool, min_maf: u32, threads: u32, after_position: u64) {
+        wanted_pwms: Vec<String>, output_file: String, forward_only: bool, run_tabix: bool, min_maf: u32, threads: u32, after_position: u64, verbose: bool) {
 
     let pwm_list: Vec<Pattern> = parse_pwm_files(pwm_file, pwm_threshold_directory, pwm_threshold, wanted_pwms, !forward_only);
     let mut pwm_name_dict: HashMap<u16, String> = HashMap::new();
@@ -311,7 +314,8 @@ fn run(chromosome: String, bcf: String, bed_files: Vec<&str>, reference_genome_f
                                  &tx,
                                  fake_position.clone(),
                                  number_of_peaks,
-                                 number_of_peaks_processed.clone());
+                                 number_of_peaks_processed.clone(),
+                                 verbose);
                 }
             });
             handlers.push(handle);
@@ -338,7 +342,7 @@ fn process_peak(chromosome: &str, reader: &mut IndexedReader, reference_genome: 
                 pwm_list: &Vec<Pattern>, sample_positions_in_bcf: &Vec<usize>,
                 null_count: &Vec<u32>, pwm_name_dict: &HashMap<u16, String>, min_maf: u32,
                 all_haplotypes_with_reference_genome: &HashSet<HaplotypeId>, start_time: SystemTime, txx: &Sender<String>,
-                fake_position: Arc<Mutex<u32>>, number_of_peaks: usize, number_of_peaks_processed: Arc<Mutex<u32>>) -> () {
+                fake_position: Arc<Mutex<u32>>, number_of_peaks: usize, number_of_peaks_processed: Arc<Mutex<u32>>, verbose: bool) -> () {
     let peak_start_time = SystemTime::now();
 
     let chr = chromosome.replace("chr", "");
@@ -347,19 +351,21 @@ fn process_peak(chromosome: &str, reader: &mut IndexedReader, reference_genome: 
 
     let inner_peaks: HashMap<&String, Vec<&Range>> = select_inner_peaks(peak, &peak_map);
 
-    let (match_list, number_of_haplotypes, number_of_variants) = find_all_matches(&chromosome, &peak, reader, &ref_haplotype, &*pwm_list, (*all_haplotypes_with_reference_genome).clone(), &*sample_positions_in_bcf);
+    let (match_list, number_of_haplotypes, number_of_variants) = find_all_matches(&chromosome, &peak, reader, &ref_haplotype, &*pwm_list, (*all_haplotypes_with_reference_genome).clone(), &*sample_positions_in_bcf, verbose);
 
     for ((source, inner_peak, pattern_id),(v1,v2)) in count_matches_by_sample(&match_list, &inner_peaks, &*null_count).drain() {
         let pwm_name = pwm_name_dict.get(&pattern_id).expect("Logic error: No pattern name for a pattern_id");
         let id_str = format!("{},{},{}-{}",source, pwm_name, inner_peak.start, inner_peak.end);
 
-        if let Some((distinct_counts, maf, freq0, freq1, freq2, genotypes)) = counts_as_genotypes(v1, v2) {
+        //println!("count_matches_by_sample returned something {}", id_str);
+        if let Some((distinct_counts, maf, freq0, freq1, freq2, genotypes)) = counts_as_genotypes(v1, v2, verbose) {
             if maf >= min_maf {
                 let distinct_counts_str: Vec<String> = distinct_counts.iter().map(|c| c.to_string()).collect();
                 let info_str = format!("COUNTS={};freqs={}/{}/{}", distinct_counts_str.join(","), freq0, freq1, freq2);
                 txx.send(format!("{}\t{}\t{}\t.\t.\t.\t.\t{}\tGT:DS{}\n", chr, fake_position.lock().unwrap(), id_str, info_str, genotypes).to_string()).expect("Could not write result");
                 *fake_position.lock().unwrap() += 1;
             }
+            else { if verbose { println!("Frequency insufficient"); } }
         }
     }
 
@@ -371,7 +377,7 @@ fn process_peak(chromosome: &str, reader: &mut IndexedReader, reference_genome: 
 }
 
 
-fn counts_as_genotypes(v1: Vec<u32>, v2: Vec<u32>) -> Option<(Vec<u32>, u32, u32, u32, u32, String)> {
+fn counts_as_genotypes(v1: Vec<u32>, v2: Vec<u32>, verbose: bool) -> Option<(Vec<u32>, u32, u32, u32, u32, String)> {
     // Sum of the number of TFBS on both alleles
     let v = {
         assert!(v1.len() == v2.len());
@@ -387,7 +393,7 @@ fn counts_as_genotypes(v1: Vec<u32>, v2: Vec<u32>) -> Option<(Vec<u32>, u32, u32
 
     match (min, max) {
         (Some(&lowest), Some(&highest)) => {
-            //println!("Min max {} {}", lowest, highest);
+            if verbose { println!("Min and max count: {} {}", lowest, highest); }
             if lowest == highest {
                 None // No variation in the number of TFBS, so let's forget about this region
             }
@@ -436,6 +442,8 @@ fn count_matches_by_sample<'a>(match_list: &Vec<Match>, inner_peaks: &'a HashMap
     let mut pppp: HashMap<(&String, &Range, u16), (Vec<u32>, Vec<u32>)> = HashMap::new();
     for m in match_list {
         let pos = m.pos;
+        // Note: If the TFBS start is right at the end of a cell's open chromatin peak ("inner_peak"), we don't check if the TFBS goes a bit beyond the peak
+        //       This can be confusing, because the result we get when we query one peak can be different from the result we get when we query the same peak and an overlapping peak that goes a few bp further 
         for (&s,inner) in inner_peaks.iter().map(|(s,x)| (s, x.iter().filter(|y| y.contains(pos)))) {
             for &inner_peak in inner {
                 let key = (s, inner_peak, m.pattern_id);
