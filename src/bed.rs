@@ -36,8 +36,14 @@ pub fn load_peak_files(bed_files: &Vec<&str>, chromosome: &str, after_position: 
     }
     let vals: Vec<Vec<range::Range>> = peak_map.values().map(|x| x.clone()).collect();
     let rs: range::RangeStack = vals.concat().iter().collect();
-    println!("Merged all peak files: {} peaks covering {} bp", rs.ranges.len(), sum_peak_sizes(&rs.ranges));
-    (rs.ranges, simplify_peak_map(peak_map))
+    let merged_peaks = {
+        let mut x = rs.ranges;
+        x.sort_by(|a,b| a.start.cmp(&b.start));
+        x
+    };
+    println!("Merged all region files: {} merged regions covering {} bp", merged_peaks.len(), sum_peak_sizes(&merged_peaks));
+
+    (merged_peaks, simplify_peak_map(peak_map))
 }
 
 fn simplify(s: String) -> String {

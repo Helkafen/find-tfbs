@@ -39,7 +39,7 @@ use types::*;
 use range::Range;
 use pattern::{parse_pwm_files,matches};
 use util::to_nucleotides_pos;
-use haplotype::load_haplotypes;
+use haplotype::load_haplotypes ;
 use bed::load_peak_files;
 
 
@@ -80,15 +80,28 @@ fn all_haplotype_ids(sample_count: usize) -> HashSet<HaplotypeId> {
     x
 }
 
+fn print_haplotype(haplotype: &Vec<NucleotidePos>) {
+    for c in haplotype {
+        print!("{}", c.nuc);
+    }
+    println!("");
+}
+
 fn find_all_matches(chromosome: &str, peak: &Range, reader: &mut IndexedReader, ref_haplotype: &Vec<NucleotidePos>, pwm_list: &Vec<Pattern>, mut haplotypes_with_reference_genome: HashSet<HaplotypeId>, sample_positions_in_bcf:&Vec<usize>, verbose: bool)
                     -> (Vec<Match>, u32, u32) {
     let mut match_list = Vec::new();
     let mut number_of_haplotypes = 0;
     // Find matches for people who have at least one variant inside the peak
     let (number_of_variants, mut xs) = load_haplotypes(chromosome, &peak, reader, ref_haplotype, sample_positions_in_bcf);
+    if verbose {
+        print!("Reference haplotype: "); print_haplotype(ref_haplotype);
+    }
     for (haplotype, haplotype_ids) in xs.drain() {
         for h in haplotype_ids.iter() {
             haplotypes_with_reference_genome.remove(&h);
+        }
+        if verbose {
+            print!("  Patched haplotype: "); print_haplotype(&haplotype);
         }
         //println!("{} PWMs", pwm_list.len());
         for pwm in pwm_list {
@@ -110,7 +123,7 @@ fn find_all_matches(chromosome: &str, peak: &Range, reader: &mut IndexedReader, 
 }
 
 fn read_peak_in_reference_genome(chromosome: String, peak: &Range, reference_genome: &mut bio::io::fasta::IndexedReader<std::fs::File>)-> Vec<NucleotidePos> {
-    reference_genome.fetch(&chromosome, peak.start, peak.end - 1).expect("Error while seeking in reference genome file");
+    reference_genome.fetch(&chromosome, peak.start, peak.end + 1).expect("Error while seeking in reference genome file");
     let mut text = Vec::new();
     reference_genome.read(&mut text).expect(&format!("Error while reading in reference genome file {}:{}-{}", chromosome, peak.start, peak.end));
     to_nucleotides_pos(&text, &peak)
@@ -184,13 +197,14 @@ fn main() {
 
     run(chromosome, bcf, bed_files, reference_genome_file, wanted_samples, pwm_file, pwm_threshold_directory, pwm_threshold, wanted_pwms, output_file, forward_only, run_tabix, min_maf, threads, after_position, verbose);
 
-    println!("End.");
+    println!("End of program.");
 }
 
 fn run(chromosome: String, bcf: String, bed_files: Vec<&str>, reference_genome_file: String, wanted_samples: Option<&str>, pwm_file: &str, pwm_threshold_directory: &str, pwm_threshold: f32,
         wanted_pwms: Vec<String>, output_file: String, forward_only: bool, run_tabix: bool, min_maf: u32, threads: u32, after_position: u64, verbose: bool) {
 
     let pwm_list: Vec<Pattern> = parse_pwm_files(pwm_file, pwm_threshold_directory, pwm_threshold, wanted_pwms, !forward_only);
+    assert!(pwm_list.len() > 0);
     let mut pwm_name_dict: HashMap<u16, String> = HashMap::new();
     for pwm in &pwm_list {
         match pwm {
@@ -217,8 +231,9 @@ fn run(chromosome: String, bcf: String, bed_files: Vec<&str>, reference_genome_f
 
         // The writer thread receive lines of text and writes them to the output file
         let _writer_thread = thread::spawn(move || {
+            let temp = format!("{}.part", output_file.clone());
             {
-                let mut writer = BGzWriter::new(BufWriter::with_capacity(4096*1000,fs::File::create(output_file.clone() + ".part").expect("Could not create output file")));
+                let mut writer = BGzWriter::new(BufWriter::with_capacity(4096*1000,fs::File::create(temp.clone()).expect("Could not create output file")));
                 loop {
                     match rx.recv() {
                         Ok(s) => { writer.write(s.as_bytes()).expect("Could not write bytes to output file"); }
@@ -229,7 +244,7 @@ fn run(chromosome: String, bcf: String, bed_files: Vec<&str>, reference_genome_f
                 let _ = writer.flush();
             }
             if run_tabix{
-                let x = Exec::shell(&format!("zcat {}.part | bgzip > {}; tabix -f -p vcf {}; rm {}.part", output_file.clone(), output_file.clone(), output_file.clone(), output_file.clone())).join().unwrap();
+                let x = Exec::shell(&format!("zcat {} | bgzip > {}; tabix -f -p vcf {}; rm {}", temp.clone(), output_file.clone(), output_file.clone(), temp.clone())).join().unwrap();
                 if x.success() {
                     println!("Tabixed file {}", output_file.clone());
                 }
@@ -238,7 +253,7 @@ fn run(chromosome: String, bcf: String, bed_files: Vec<&str>, reference_genome_f
                 }
             }
             else {
-                fs::rename(output_file.clone() + ".part", output_file.clone()).expect(&format!("Count not rename {} into {}", output_file.clone(), output_file.clone() + ".part"));
+                fs::rename(temp.clone(), output_file.clone()).expect(&format!("Could not rename {} into {}", temp.clone(), output_file.clone()));
             }
             println!("End of writer thread");
         });
@@ -298,31 +313,38 @@ fn run(chromosome: String, bcf: String, bed_files: Vec<&str>, reference_genome_f
             let mut reference_genome = bio::io::fasta::IndexedReader::from_file(&Path::new(&reference_genome_file)).expect(&format!("Error while opening the reference genome '{}'", reference_genome_file));
 
             let handle = thread::spawn(move || {
-                for peak in peak_rx {
-                    process_peak(&chromosome,
-                                 &mut reader,
-                                 &mut reference_genome,
-                                 peak,
-                                 &peak_map,
-                                 &pwm_list,
-                                 &sample_positions_in_bcf,
-                                 &null_count,
-                                 &pwm_name_dict,
-                                 min_maf,
-                                 &all_haplotypes_with_reference_genome,
-                                 start_time,
-                                 &tx,
-                                 fake_position.clone(),
-                                 number_of_peaks,
-                                 number_of_peaks_processed.clone(),
-                                 verbose);
+                println!("Spawned one worker");
+                for peaks_chunk in peak_rx {
+                    for peak in peaks_chunk {
+                        process_peak(&chromosome,
+                            &mut reader,
+                            &mut reference_genome,
+                            peak,
+                            &peak_map,
+                            &pwm_list,
+                            &sample_positions_in_bcf,
+                            &null_count,
+                            &pwm_name_dict,
+                            min_maf,
+                            &all_haplotypes_with_reference_genome,
+                            start_time,
+                            &tx,
+                            fake_position.clone(),
+                            number_of_peaks,
+                            number_of_peaks_processed.clone(),
+                            verbose);
+                    }
                 }
             });
             handlers.push(handle);
         }
 
-        for peak in merged_peaks {
-            let _ = peak_tx.try_send(peak).unwrap();
+        // Performance optimization: we process peaks by chunks of 50.
+        // Reason: BCF files are compressed by blocks, and each block contains the genotypes for a range of coordinates
+        //         Processing large contiguous chunks is faster, because we're not randomly reading lines from different compressed blocks
+        let peaks_chunks: Vec<Vec<Range>> = merged_peaks.chunks(50).map(|x| x.to_vec()).collect();
+        for peaks_chunk in peaks_chunks {
+            let _ = peak_tx.try_send(peaks_chunk).unwrap();
         }
         drop(peak_tx); // Let the worker threads know that this is the end of the input stream
 
@@ -334,11 +356,10 @@ fn run(chromosome: String, bcf: String, bed_files: Vec<&str>, reference_genome_f
 
     let _ = _writer_thread.join();
 
-    println!("End.");
+    println!("Writer thread joined. End program");
 }
 
-
-fn process_peak(chromosome: &str, reader: &mut IndexedReader, reference_genome: &mut bio::io::fasta::IndexedReader<std::fs::File>, peak: Range, peak_map: &HashMap<String, Vec<range::Range>>,
+fn process_peak(chromosome: &str, reader: &mut IndexedReader, reference_genome: &mut bio::io::fasta::IndexedReader<std::fs::File>, merged_peak: Range, peak_map: &HashMap<String, Vec<range::Range>>,
                 pwm_list: &Vec<Pattern>, sample_positions_in_bcf: &Vec<usize>,
                 null_count: &Vec<u32>, pwm_name_dict: &HashMap<u16, String>, min_maf: u32,
                 all_haplotypes_with_reference_genome: &HashSet<HaplotypeId>, start_time: SystemTime, txx: &Sender<String>,
@@ -347,11 +368,16 @@ fn process_peak(chromosome: &str, reader: &mut IndexedReader, reference_genome: 
 
     let chr = chromosome.replace("chr", "");
 
-    let ref_haplotype = read_peak_in_reference_genome(chromosome.to_string(), &peak, reference_genome);
+    let largest_pwm_size: u32 = pwm_list.iter().map(|x| pattern_length(x.clone())).max().unwrap();
 
-    let inner_peaks: HashMap<&String, Vec<&Range>> = select_inner_peaks(peak, &peak_map);
+    // The TFBS may overlap the right and left border of the merged peak, so we build larger haplotypes
+    let extended_merged_peak = range::Range::new(merged_peak.start-largest_pwm_size as u64 + 1,merged_peak.end+largest_pwm_size as u64 - 1);
 
-    let (match_list, number_of_haplotypes, number_of_variants) = find_all_matches(&chromosome, &peak, reader, &ref_haplotype, &*pwm_list, (*all_haplotypes_with_reference_genome).clone(), &*sample_positions_in_bcf, verbose);
+    let ref_haplotype = read_peak_in_reference_genome(chromosome.to_string(), &extended_merged_peak, reference_genome);
+
+    let inner_peaks: HashMap<&String, Vec<&Range>> = select_inner_peaks(merged_peak, &peak_map);
+
+    let (match_list, number_of_haplotypes, number_of_variants) = find_all_matches(&chromosome, &extended_merged_peak, reader, &ref_haplotype, &*pwm_list, (*all_haplotypes_with_reference_genome).clone(), &*sample_positions_in_bcf, verbose);
 
     for ((source, inner_peak, pattern_id),(v1,v2)) in count_matches_by_sample(&match_list, &inner_peaks, &*null_count).drain() {
         let pwm_name = pwm_name_dict.get(&pattern_id).expect("Logic error: No pattern name for a pattern_id");
@@ -373,7 +399,7 @@ fn process_peak(chromosome: &str, reader: &mut IndexedReader, reference_genome: 
     let peak_time_elapsed = peak_start_time.elapsed().unwrap().as_millis();
     let global_time_elapsed = start_time.elapsed().unwrap().as_millis();
     *number_of_peaks_processed.lock().unwrap() += 1;
-    println!("Peak {}/{}\t{} ms ({} total)\t{}\t{}\t{} haplotypes\t{} variants\t{} matches", number_of_peaks_processed.lock().unwrap(), number_of_peaks, peak_time_elapsed, global_time_elapsed, peak.start, peak.end, number_of_haplotypes, number_of_variants, number_of_matches);
+    println!("Peak {}/{}\t{} ms ({} total)\t{}\t{}\t{} haplotypes\t{} variants\t{} matches", number_of_peaks_processed.lock().unwrap(), number_of_peaks, peak_time_elapsed, global_time_elapsed, merged_peak.start, merged_peak.end, number_of_haplotypes, number_of_variants, number_of_matches);
 }
 
 
@@ -441,10 +467,7 @@ fn counts_as_genotypes(v1: Vec<u32>, v2: Vec<u32>, verbose: bool) -> Option<(Vec
 fn count_matches_by_sample<'a>(match_list: &Vec<Match>, inner_peaks: &'a HashMap<&String, Vec<&Range>>, null_count: &Vec<u32>) -> HashMap<(&'a String, &'a Range, u16), (Vec<u32>,Vec<u32>)> {
     let mut pppp: HashMap<(&String, &Range, u16), (Vec<u32>, Vec<u32>)> = HashMap::new();
     for m in match_list {
-        let pos = m.pos;
-        // Note: If the TFBS start is right at the end of a cell's open chromatin peak ("inner_peak"), we don't check if the TFBS goes a bit beyond the peak
-        //       This can be confusing, because the result we get when we query one peak can be different from the result we get when we query the same peak and an overlapping peak that goes a few bp further 
-        for (&s,inner) in inner_peaks.iter().map(|(s,x)| (s, x.iter().filter(|y| y.contains(pos)))) {
+        for (&s,inner) in inner_peaks.iter().map(|(s,x)| (s, x.iter().filter(|y| y.overlaps(&m.range)))) {
             for &inner_peak in inner {
                 let key = (s, inner_peak, m.pattern_id);
                 match pppp.get_mut(&key) {
@@ -494,7 +517,7 @@ mod tests {
         run("chr1".to_string(), "test_data/genotypes.bcf".to_string(), vec!["test_data/regions1.bed","test_data/regions2.bed"], "test_data/reference_genome.fa".to_string(), 
              Some("test_data/samples"),
              "test_data/pwm_definitions.txt",
-             "test_data", 0.0001, vec!["ACGT".to_string()], "test_data/output1.vcf.gz".to_string(), false, false, 0, 1, 0);
+             "test_data", 0.0001, vec!["ACGT".to_string()], "test_data/output1.vcf.gz".to_string(), false, false, 0, 1, 0, true);
         let output = std::fs::read(format!("{}/test_data/output1.vcf.gz", wd())).expect("unable to read file");
         let expected = std::fs::read(format!("{}/test_data/expected_output_1.vcf.gz", wd())).expect("unable to read file");
         assert_eq!(output, expected);
@@ -505,11 +528,113 @@ mod tests {
         run("chr1".to_string(), "test_data/genotypes2.bcf".to_string(), vec!["test_data/regions1.bed","test_data/regions2.bed"], "test_data/reference_genome.fa".to_string(), 
              Some("test_data/samples"),
              "test_data/pwm_definitions.txt",
-             "test_data", 0.0001, vec!["ACGT".to_string()], "test_data/output2.vcf.gz".to_string(), false, false, 0, 1, 0);
+             "test_data", 0.0001, vec!["ACGT".to_string()], "test_data/output2.vcf.gz".to_string(), false, false, 0, 1, 0, true);
         let output = std::fs::read(format!("{}/test_data/output2.vcf.gz", wd())).expect("unable to read file");
         let expected = std::fs::read(format!("{}/test_data/expected_output_2.vcf.gz", wd())).expect("unable to read file");
         assert_eq!(output, expected);
     }
 
+    #[test]
+    fn test_count_matches() {
+        let sample_count = 2;
+
+        let match1 = Match { range: range::Range::new(10,11), pattern_id: 0, haplotype_ids: Rc::new(vec![HaplotypeId { sample_id: 0, side: HaplotypeSide::Left } ]) };
+
+        let match_list1 = vec![match1.clone()];
+        let match_list2 = vec![Match{range: range::Range::new(20,21), ..match1.clone()}];
+        let match_list3 = vec![Match{range: range::Range::new(4, 5) , ..match1.clone()}];
+        let match_list4 = vec![Match{range: range::Range::new(3, 4) , ..match1.clone()}];
+        let match_list5 = vec![Match{range: range::Range::new(21, 22) , ..match1.clone()}];
+
+        let match_list6 = vec![
+            Match { range: range::Range::new(4,5), pattern_id: 9, haplotype_ids: Rc::new(vec![HaplotypeId { sample_id: 1, side: HaplotypeSide::Right } ]) } 
+        ];
+
+        let match_list7 = vec![
+            Match { range: range::Range::new(17,18), pattern_id: 11, haplotype_ids: Rc::new(vec![HaplotypeId { sample_id: 1, side: HaplotypeSide::Right } ]) } 
+        ];
+
+        let mep = "MEP".to_string();
+        let erythro = "Erythro".to_string();
+        let range1 = range::Range::new(5,20);
+        let range2 = range::Range::new(15,25);
+
+        let inner_peaks = {
+            let mut x = HashMap::new();
+            x.insert(&mep, vec![&range1]);
+            x
+        };
+
+        let inner_peaks2 = {
+            let mut x = HashMap::new();
+            x.insert(&mep, vec![&range1]);
+            x.insert(&erythro, vec![&range2]);
+            x
+        };
+
+        let null_count: Vec<u32> = repeat(sample_count, 0);
+
+        // TFBS overlaps open chromatin region
+        assert_eq!(count_matches_by_sample(&match_list1, &inner_peaks, &null_count), 
+            {
+                let mut x = HashMap::new();
+                x.insert((&mep, &range1, 0), (vec![1,0], vec![0,0]));
+                x
+            });
+        assert_eq!(count_matches_by_sample(&match_list1, &inner_peaks, &null_count), count_matches_by_sample(&match_list2, &inner_peaks, &null_count));
+        assert_eq!(count_matches_by_sample(&match_list1, &inner_peaks, &null_count), count_matches_by_sample(&match_list3, &inner_peaks, &null_count));
+
+        // TFBS doesn't overlap open chromatin region
+        assert_eq!(count_matches_by_sample(&match_list4, &inner_peaks, &null_count), count_matches_by_sample(&match_list5, &inner_peaks, &null_count));
+        assert_eq!(count_matches_by_sample(&match_list4, &inner_peaks, &null_count), HashMap::new());
+
+        // Use a different pattern_id and move the TFBS to another person/chromosome
+        assert_eq!(count_matches_by_sample(&match_list6, &inner_peaks, &null_count), 
+            {
+                let mut x = HashMap::new();
+                x.insert((&mep, &range1, 9), (vec![0,0], vec![0,1]));
+                x
+            });
+
+        assert_eq!(count_matches_by_sample(&match_list1, &inner_peaks2, &null_count), 
+        {
+            let mut x = HashMap::new();
+            x.insert((&mep, &range1, 0), (vec![1,0], vec![0,0]));
+            x
+        });
+
+        assert_eq!(count_matches_by_sample(&match_list2, &inner_peaks2, &null_count),
+        {
+            let mut x = HashMap::new();
+            x.insert((&mep, &range1, 0), (vec![1,0], vec![0,0]));
+            x.insert((&erythro, &range2, 0), (vec![1,0], vec![0,0]));
+            x
+        });
+        assert_eq!(count_matches_by_sample(&match_list1, &inner_peaks2, &null_count), count_matches_by_sample(&match_list3, &inner_peaks2, &null_count));
+        assert_eq!(count_matches_by_sample(&match_list4, &inner_peaks2, &null_count), HashMap::new());
+        assert_eq!(count_matches_by_sample(&match_list5, &inner_peaks2, &null_count),
+        {
+            let mut x = HashMap::new();
+            x.insert((&erythro, &range2, 0), (vec![1,0], vec![0,0]));
+            x
+        });
+        assert_eq!(count_matches_by_sample(&match_list4, &inner_peaks2, &null_count), HashMap::new());
+
+        // Use a different pattern_id and move the TFBS to another person/chromosome
+        assert_eq!(count_matches_by_sample(&match_list6, &inner_peaks2, &null_count), 
+        {
+            let mut x = HashMap::new();
+            x.insert((&mep, &range1, 9), (vec![0,0], vec![0,1]));
+            x
+        });
+
+        assert_eq!(count_matches_by_sample(&match_list7, &inner_peaks2, &null_count), 
+        {
+            let mut x = HashMap::new();
+            x.insert((&mep, &range1, 11), (vec![0,0], vec![0,1]));
+            x.insert((&erythro, &range2, 11), (vec![0,0], vec![0,1]));
+            x
+        });
+    }
 
 }

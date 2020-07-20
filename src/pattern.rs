@@ -8,6 +8,7 @@ use std::process::exit;
 use std::fs::read_to_string;
 
 use super::types::*;
+use super::range::*;
 
 fn parse_weight(s: &String) -> i32 {
     let x: f32 = s.parse().unwrap();
@@ -138,6 +139,7 @@ fn apply_pwm(pattern: &Pattern, haplotype: &[NucleotidePos]) -> i32 {
 //}
 
 pub fn matches(pattern: &Pattern, haplotype: &Vec<NucleotidePos>, haplotype_ids: Rc<Vec<HaplotypeId>>, verbose: bool) -> Vec<Match> {
+    let p_length = pattern_length(pattern.clone()) as u64;
     match pattern {
         Pattern::PWM{weights, name, pattern_id, min_score, direction} => {
             let mut res = Vec::new();
@@ -151,7 +153,7 @@ pub fn matches(pattern: &Pattern, haplotype: &Vec<NucleotidePos>, haplotype_ids:
                             println!("score {} min_score {} name {} position {} direction {}", score, min_score, name, haplotype[i].pos, direction);
                         }
                         //println!("----- score {} min_score {}", score, pwm.min_score);
-                        let m = Match { pos : haplotype[i].pos, pattern_id : *pattern_id, haplotype_ids: haplotype_ids.clone() };
+                        let m = Match { range : Range::new(haplotype[i].pos, haplotype[i].pos + p_length - 1) , pattern_id : *pattern_id, haplotype_ids: haplotype_ids.clone() };
                         res.push(m);
                     }
                 }
@@ -275,8 +277,8 @@ mod tests {
             NucleotidePos { nuc: Nucleotide::T, pos: 13 }
         ];
         let haplotype_ids = Rc::new(Vec::new());
-        let m = matches(&pwm, &haplotype, haplotype_ids.clone());
-        let expected = vec![Match {pos: 11, pattern_id: 5, haplotype_ids: haplotype_ids.clone()}];
+        let m = matches(&pwm, &haplotype, haplotype_ids.clone(), false);
+        let expected = vec![Match {range: Range::new(11,12), pattern_id: 5, haplotype_ids: haplotype_ids.clone()}];
         assert_eq!(m, expected);
     }
 

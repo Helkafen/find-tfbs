@@ -24,6 +24,10 @@ impl Range {
         point >= self.start && point <= self.end
     }
 
+    //pub fn contains_range(&self, r: Range) -> bool {
+    //    self.contains(r.start) && self.contains(r.end)
+    //}
+
     pub fn merge(&mut self, other: &Range) {
         self.start = cmp::min(self.start, other.start);
         self.end = cmp::max(self.end, other.end);

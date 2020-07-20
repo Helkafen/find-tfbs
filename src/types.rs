@@ -1,5 +1,6 @@
 use std::rc::Rc;
 use std::fmt;
+use super::range::*;
 
 #[derive(Eq, PartialEq, Clone, Ord, PartialOrd, Debug, Hash, Copy)]
 pub enum Nucleotide {
@@ -28,9 +29,9 @@ pub struct NucleotidePos {
 #[derive(Eq, PartialEq, Hash, Debug, Clone)]
 pub enum HaplotypeSide { Left, Right }
 
-#[derive(Eq, PartialEq, Debug)]
+#[derive(Eq, PartialEq, Debug, Clone)]
 pub struct Match {
-    pub pos: u64,
+    pub range: Range,
     pub pattern_id: u16,
     pub haplotype_ids: Rc<Vec<HaplotypeId>>
 }
@@ -66,6 +67,17 @@ impl fmt::Display for PWMDirection {
 pub enum Pattern {
      PWM { weights: Vec<Weight>, name: String, pattern_id: u16, min_score: i32, direction: PWMDirection },
      OtherPattern {  name: String, pattern_id: u16 }
+}
+
+pub fn pattern_length(p: Pattern) -> u32 {
+    match p {
+        Pattern::PWM{weights, name: _, pattern_id: _, min_score: _, direction: _} => {
+            weights.len() as u32
+        }
+        Pattern::OtherPattern{name: _, pattern_id: _} => {
+            0
+        }
+    }
 }
 
 #[derive(Eq, PartialEq, Clone, Debug)]

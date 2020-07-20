@@ -76,13 +76,14 @@ fn group_by_diffs(mut diffs: HashMap<HaplotypeId, Vec<Diff>>) -> HashMap<Vec<Dif
 
 pub fn load_haplotypes(chromosome: &str, peak: &Range, reader: &mut IndexedReader, ref_haplotype: &Vec<NucleotidePos>, sample_positions_in_bcf: &Vec<usize>) -> (u32, HashMap<Vec<NucleotidePos>, Rc<Vec<HaplotypeId>>>) {
     let rid = reader.header().name2rid(chromosome.as_bytes()).unwrap();
-    reader.fetch(rid, peak.start as u32, peak.end as u32).unwrap();
+    reader.fetch(rid, peak.start as u32, peak.end as u32 + 1).unwrap();
     let (xs, variant_count) = load_diffs(reader, sample_positions_in_bcf);
     let mut res = HashMap::new();
     for (diffs, haplotype_ids) in group_by_diffs(xs).drain(){
         let haplotype = patch_haplotype(peak, &diffs, ref_haplotype);
         res.insert(haplotype, haplotype_ids);
     }
+
     (variant_count, res)
 }
 
@@ -113,8 +114,8 @@ pub fn patch_haplotype(range: &Range, diffs: &Vec<Diff>, ref_haplotype: &Vec<Nuc
                 }
                 else if d.pos == ref_position && d.reference.len() == 1 { // SNV or insertion
                     let mut chunk = Vec::new();
-                    //println!("{} {:#?} {:#?}", range, ref_haplotype, d);
-                    //println!("assert {} == {}", d.reference[0], ref_haplotype[0].nuc);
+
+                    // Check that the reference nucleotide of the SNV matches the reference genome. If it doesn't, the input BCF has a problem.
                     let reference_first_nuc_at = {
                         let mut nuc = Nucleotide::N;
                         for np in ref_haplotype {
@@ -123,8 +124,9 @@ pub fn patch_haplotype(range: &Range, diffs: &Vec<Diff>, ref_haplotype: &Vec<Nuc
                         nuc
                     };
                     if d.reference[0] != reference_first_nuc_at {
-                        panic!("First reference nucleotide of variant doesn't match reference genome: {:#?}", d);
+                        panic!("First reference nucleotide of variant doesn't match reference genome: reference_first_nuc_at={} ref_position={} diff={:#?}", reference_first_nuc_at, ref_position, d);
                     }
+
                     for i in &d.alternative {
                         chunk.push(NucleotidePos { pos: ref_position, nuc: i.clone() });
                     }
