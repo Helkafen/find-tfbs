@@ -269,12 +269,14 @@ fn run(chromosome: String, bcf: String, bed_files: Vec<&str>, reference_genome_f
                     for line in buffered.lines() { if let Ok(l) = line { if l.len() > 1 { samples.push(l); } } }
                     let mut sample_indices = Vec::new();
                     let samples_set: HashSet<String> = samples.clone().into_iter().collect();
+                    let mut ordered_samples: Vec<String> = Vec::new();
                     for i in 0..bcf_samples_len {
                         if samples_set.contains(&bcf_samples[i]) {
                             sample_indices.push(i);
+                            ordered_samples.push(bcf_samples[i].clone());
                         }
                     }
-                    (samples, sample_indices)
+                    (ordered_samples, sample_indices)
             },
             }
         };
