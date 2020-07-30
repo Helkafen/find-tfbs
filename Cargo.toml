@@ -1,6 +1,6 @@
 [package]
 name = "find-tfbs"
-version = "1.0.0"
+version = "1.0.1"
 authors = ["Sebastian Meric de Bellefon <sebastian.meric.de.bellefon@umontreal.ca>"]
 edition = "2018"
 
