@@ -132,7 +132,7 @@ fn read_peak_in_reference_genome(chromosome: String, peak: &Range, reference_gen
 fn main() {
     let app = App::new("find-tfbs");
     let opt_matches: clap::ArgMatches<'static> =
-                        app.version("1.0")
+                        app.version("1.0.1")
                         .author("Sébastian Méric de Bellefon <sebastian.meric.de.bellefon@umontreal.ca>")
                         .about("Find patterns in a VCF file")
                         .arg(Arg::with_name("chromosome")        .short("c").required(true) .takes_value(true) .value_name("CHROM")              .long("chromosome")             .help("Chromosome to scan. Ex: 'chr1'"))
