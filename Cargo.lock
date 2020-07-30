@@ -415,7 +415,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "find-tfbs"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "bgzip 0.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "bio 0.28.2 (registry+https://github.com/rust-lang/crates.io-index)",
