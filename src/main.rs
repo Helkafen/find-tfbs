@@ -390,7 +390,7 @@ fn process_peak(chromosome: &str, reader: &mut IndexedReader, reference_genome: 
             if maf >= min_maf {
                 let distinct_counts_str: Vec<String> = distinct_counts.iter().map(|c| c.to_string()).collect();
                 let info_str = format!("COUNTS={};freqs={}/{}/{}", distinct_counts_str.join(","), freq0, freq1, freq2);
-                txx.send(format!("{}\t{}\t{}\t.\t.\t.\t.\t{}\tGT:DS{}\n", chr, fake_position.lock().unwrap(), id_str, info_str, genotypes).to_string()).expect("Could not write result");
+                txx.send(format!("{}\t{}\t{}\t.\t.\t.\tPASS\t{}\tGT:DS{}\n", chr, fake_position.lock().unwrap(), id_str, info_str, genotypes).to_string()).expect("Could not write result");
                 *fake_position.lock().unwrap() += 1;
             }
             else { if verbose { println!("Frequency insufficient"); } }
