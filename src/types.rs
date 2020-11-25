@@ -43,6 +43,26 @@ pub struct Diff {
     pub alternative: Vec<Nucleotide>,
 }
 
+impl fmt::Display for Diff {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let r = {
+            let mut s = "".to_string();
+            for x in &self.reference {
+                s = s + &format!("{}", x).to_string();
+            }
+            s
+        };
+        let a = {
+            let mut s = "".to_string();
+            for x in &self.alternative {
+                s = s + &format!("{}", x).to_string();
+            }
+            s
+        };
+        write!(f, "{} {}->{}", self.pos, r, a)
+    }
+}
+
 #[derive(Eq, PartialEq, Hash, Debug, Clone)]
 pub struct HaplotypeId {
     pub sample_id: usize,

@@ -74,14 +74,14 @@ fn group_by_diffs(mut diffs: HashMap<HaplotypeId, Vec<Diff>>) -> HashMap<Vec<Dif
     return rc;
 }
 
-pub fn load_haplotypes(chromosome: &str, peak: &Range, reader: &mut IndexedReader, ref_haplotype: &Vec<NucleotidePos>, sample_positions_in_bcf: &Vec<usize>) -> (u32, HashMap<Vec<NucleotidePos>, Rc<Vec<HaplotypeId>>>) {
+pub fn load_haplotypes(chromosome: &str, peak: &Range, reader: &mut IndexedReader, ref_haplotype: &Vec<NucleotidePos>, sample_positions_in_bcf: &Vec<usize>) -> (u32, HashMap<Vec<NucleotidePos>, (Rc<Vec<HaplotypeId>>, Vec<Diff>)>) {
     let rid = reader.header().name2rid(chromosome.as_bytes()).unwrap();
     reader.fetch(rid, peak.start as u32, peak.end as u32 + 1).unwrap();
     let (xs, variant_count) = load_diffs(reader, sample_positions_in_bcf);
     let mut res = HashMap::new();
     for (diffs, haplotype_ids) in group_by_diffs(xs).drain(){
         let haplotype = patch_haplotype(peak, &diffs, ref_haplotype);
-        res.insert(haplotype, haplotype_ids);
+        res.insert(haplotype, (haplotype_ids, diffs.clone()));
     }
 
     (variant_count, res)

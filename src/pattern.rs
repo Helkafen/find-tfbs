@@ -150,7 +150,7 @@ pub fn matches(pattern: &Pattern, haplotype: &Vec<NucleotidePos>, haplotype_ids:
                     let score = apply_pwm(&pattern, &haplotype[i..]);
                     if score > *min_score {
                         if verbose {
-                            println!("score {} min_score {} name {} position {} direction {}", score, min_score, name, haplotype[i].pos, direction);
+                            println!("  Pattern match: score={} min_score={} name={} position={} direction={}", score, min_score, name, haplotype[i].pos, direction);
                         }
                         //println!("----- score {} min_score {}", score, pwm.min_score);
                         let m = Match { range : Range::new(haplotype[i].pos, haplotype[i].pos + p_length - 1) , pattern_id : *pattern_id, haplotype_ids: haplotype_ids.clone() };

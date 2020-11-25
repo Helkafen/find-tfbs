@@ -81,6 +81,10 @@ fn all_haplotype_ids(sample_count: usize) -> HashSet<HaplotypeId> {
 }
 
 fn print_haplotype(haplotype: &Vec<NucleotidePos>) {
+    if haplotype.len() > 0 {
+        print!("{}", haplotype[0].pos);
+        print!(" ");
+    }
     for c in haplotype {
         print!("{}", c.nuc);
     }
@@ -93,30 +97,57 @@ fn find_all_matches(chromosome: &str, peak: &Range, reader: &mut IndexedReader, 
     let mut number_of_haplotypes = 0;
     // Find matches for people who have at least one variant inside the peak
     let (number_of_variants, mut xs) = load_haplotypes(chromosome, &peak, reader, ref_haplotype, sample_positions_in_bcf);
-    if verbose {
-        print!("Reference haplotype: "); print_haplotype(ref_haplotype);
-    }
-    for (haplotype, haplotype_ids) in xs.drain() {
+    
+    for (haplotype, (haplotype_ids, diffs)) in xs.drain() {
+        number_of_haplotypes = number_of_haplotypes + 1;
         for h in haplotype_ids.iter() {
             haplotypes_with_reference_genome.remove(&h);
         }
         if verbose {
-            print!("  Patched haplotype: "); print_haplotype(&haplotype);
+            print!("Patched haplotype (freq={}): ", haplotype_ids.len()); print_haplotype(&haplotype);
+            for d in &diffs {
+                println!("  Variant: {}", d);
+            }
         }
         //println!("{} PWMs", pwm_list.len());
         for pwm in pwm_list {
-            match_list.extend(matches(pwm, &haplotype, haplotype_ids.clone(),verbose));
+            let local_matches = matches(pwm, &haplotype, haplotype_ids.clone(), verbose);
+            //if verbose {
+            //    if local_matches.len()>0 {
+            //        match pwm {
+            //            Pattern::PWM { weights: _, name, pattern_id: _, min_score: _, direction } => println!("  {} {} {}", name, direction, haplotype_ids.len()),
+            //            Pattern::OtherPattern { name, pattern_id: _ } => println!("  {}", name),
+            //        }
+            //    }
+            //}
+            match_list.extend(local_matches)
         }
-        number_of_haplotypes = number_of_haplotypes + 1;
+            
     };
 
     // Find matches for people who have the reference genome in this peak
     if !haplotypes_with_reference_genome.is_empty() {
         number_of_haplotypes = number_of_haplotypes + 1;
         let x: Vec<HaplotypeId> = haplotypes_with_reference_genome.into_iter().collect();
+        if verbose {
+            print!("Reference haplotype (freq={}): ", x.len()); print_haplotype(ref_haplotype);
+        }
         let hap_ids = Rc::new(x);
         for pwm in pwm_list {
-            match_list.extend(matches(pwm, &ref_haplotype, hap_ids.clone(),verbose));
+            let local_matches = matches(pwm, &ref_haplotype, hap_ids.clone(), verbose);
+            //if verbose {
+            //    if local_matches.len()>0 {
+            //        match pwm {
+            //            Pattern::PWM { weights: _, name, pattern_id: _, min_score: _, direction } => println!("  {} {}", name, direction),
+            //            Pattern::OtherPattern { name, pattern_id: _ } => println!("  {}", name),
+            //        }
+            //    }
+            //}
+            match_list.extend(local_matches)
+        }
+    } else {
+        if verbose {
+            print!("Reference haplotype (freq=0): "); print_haplotype(ref_haplotype);
         }
     }
     (match_list, number_of_haplotypes, number_of_variants)
@@ -401,7 +432,7 @@ fn process_peak(chromosome: &str, reader: &mut IndexedReader, reference_genome: 
     let peak_time_elapsed = peak_start_time.elapsed().unwrap().as_millis();
     let global_time_elapsed = start_time.elapsed().unwrap().as_millis();
     *number_of_peaks_processed.lock().unwrap() += 1;
-    println!("Peak {}/{}\t{} ms ({} total)\t{}\t{}\t{} haplotypes\t{} variants\t{} matches", number_of_peaks_processed.lock().unwrap(), number_of_peaks, peak_time_elapsed, global_time_elapsed, merged_peak.start, merged_peak.end, number_of_haplotypes, number_of_variants, number_of_matches);
+    println!("\nPeak {}/{}\t{} ms ({} total)\t{}\t{}\t{} haplotypes\t{} variants\t{} matches", number_of_peaks_processed.lock().unwrap(), number_of_peaks, peak_time_elapsed, global_time_elapsed, merged_peak.start, merged_peak.end, number_of_haplotypes, number_of_variants, number_of_matches);
 }
 
 
