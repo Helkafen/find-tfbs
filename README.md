@@ -58,6 +58,12 @@ find-tfbs
     --reference hg38.fa
 ```
 
+For instance, using test data from this repository:
+
+```console
+./target/release/find-tfbs --input test_data/genotypes2.bcf --chromosome chr1 --bed test_data/regions1.bed,test_data/regions2.bed --output variations.vcf.gz --pwm_file test_data/pwm_definitions.txt  --pwm_names ACGT --pwm_threshold 0.0001 --pwm_threshold_directory test_data/ --reference test_data/reference_genome.fa  --samples test_data/samples
+```
+
 
 ## Adapting find-tfbs to use alternatives to PWMs
 
